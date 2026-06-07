@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, Github, Chrome, Loader2 } from "lucide-react";
+import { Zap, Github, Chrome, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useAuth, useFirestore } from "@/firebase";
@@ -14,12 +14,14 @@ import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, GoogleA
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   
   const auth = useAuth();
   const db = useFirestore();
@@ -28,6 +30,7 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError(null);
     
     if (!email || !password || !name) {
       toast({
@@ -57,7 +60,6 @@ export default function SignupPage() {
       await updateProfile(user, { displayName: name });
 
       // 3. Create User Profile in Firestore
-      // Using setDoc with merge: true to avoid overwriting existing data if any
       const userRef = doc(db, "users", user.uid);
       await setDoc(userRef, {
         uid: user.uid,
@@ -76,10 +78,17 @@ export default function SignupPage() {
       router.push("/dashboard");
     } catch (error: any) {
       console.error("Signup error:", error);
+      let message = error.message;
+      
+      if (error.code === 'auth/api-key-not-valid') {
+        message = "Firebase API Key is missing or invalid. Please configure src/firebase/config.ts with your actual project keys.";
+      }
+      
+      setAuthError(message);
       toast({
         variant: "destructive",
         title: "Sign up failed",
-        description: error.message || "An unexpected error occurred. Please try again.",
+        description: message,
       });
     } finally {
       setIsLoading(false);
@@ -89,6 +98,7 @@ export default function SignupPage() {
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
     setIsLoading(true);
+    setAuthError(null);
     try {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
@@ -105,6 +115,7 @@ export default function SignupPage() {
 
       router.push("/dashboard");
     } catch (error: any) {
+      setAuthError(error.message);
       toast({
         variant: "destructive",
         title: "Google sign in failed",
@@ -132,6 +143,16 @@ export default function SignupPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6">
+            {authError && (
+              <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 text-destructive animate-in fade-in slide-in-from-top-1">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Configuration Error</AlertTitle>
+                <AlertDescription className="text-xs">
+                  {authError}
+                </AlertDescription>
+              </Alert>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <Button 
                 variant="outline" 
