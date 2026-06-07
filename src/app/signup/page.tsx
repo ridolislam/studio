@@ -81,7 +81,11 @@ export default function SignupPage() {
       let message = error.message;
       
       if (error.code === 'auth/api-key-not-valid') {
-        message = "Firebase API Key is invalid. Please update src/firebase/config.ts with your actual API key from Firebase Console.";
+        message = "Firebase API Key is invalid. Please check your src/firebase/config.ts file.";
+      } else if (error.code === 'auth/configuration-not-found') {
+        message = "Email/Password sign-in is not enabled in Firebase Console. Please go to Authentication > Sign-in method and enable it.";
+      } else if (error.code === 'auth/email-already-in-use') {
+        message = "This email is already registered. Please try logging in.";
       }
       
       setAuthError(message);
@@ -115,11 +119,15 @@ export default function SignupPage() {
 
       router.push("/dashboard");
     } catch (error: any) {
-      setAuthError(error.message);
+      let message = error.message;
+      if (error.code === 'auth/configuration-not-found') {
+        message = "Google sign-in is not enabled in Firebase Console. Please enable it in the Authentication tab.";
+      }
+      setAuthError(message);
       toast({
         variant: "destructive",
         title: "Google sign in failed",
-        description: error.message,
+        description: message,
       });
     } finally {
       setIsLoading(false);
@@ -146,7 +154,7 @@ export default function SignupPage() {
             {authError && (
               <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 text-destructive animate-in fade-in slide-in-from-top-1">
                 <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Configuration Required</AlertTitle>
+                <AlertTitle>Action Required</AlertTitle>
                 <AlertDescription className="text-xs">
                   {authError}
                 </AlertDescription>
