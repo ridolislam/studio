@@ -3,7 +3,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
-  title: 'LeadPulse | Smart Lead Extraction',
+  title: 'numcheckr | Smart Phone Number Validator',
   description: 'AI-Powered Lead Generation and Data Extraction Tool',
 };
 
