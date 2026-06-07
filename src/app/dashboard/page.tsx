@@ -3,7 +3,7 @@
 
 import LeadPulseDashboard from "@/components/LeadPulseDashboard";
 import { Zap, Plus, LogOut, Loader2 } from "lucide-react";
-import { useUser, useFirestore, useDoc } from "@/firebase";
+import { useUser, useFirestore, useDoc, useAuth } from "@/firebase";
 import { doc } from "firebase/firestore";
 import { 
   DropdownMenu, 
@@ -17,7 +17,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
-import { useAuth } from "@/firebase";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -41,7 +40,7 @@ export default function DashboardPage() {
   };
 
   const navigateToCredits = () => {
-    console.log("Dashboard: Initiating navigation to /credits via router.push");
+    console.log("Dashboard: Navigating to /credits");
     router.push("/credits");
   };
 
@@ -66,21 +65,18 @@ export default function DashboardPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/" className="relative group cursor-pointer">
-            <div className="absolute -inset-1 bg-gradient-to-r from-primary to-accent rounded-xl blur opacity-25"></div>
-            <div className="relative bg-card p-3 rounded-xl border border-primary/20 shadow-2xl">
-              <Zap className="h-8 w-8 text-primary" />
-            </div>
+            <Zap className="h-8 w-8 text-primary" />
           </Link>
           <div>
-            <h1 className="text-4xl font-black tracking-tighter font-headline text-primary italic leading-none">numcheckr</h1>
+            <h1 className="text-4xl font-black tracking-tighter text-primary italic leading-none">numcheckr</h1>
             <p className="text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-bold mt-1">Validator Pro</p>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center bg-card border border-primary/20 rounded-2xl px-4 py-2 shadow-inner group transition-all hover:border-primary/40">
+          <div className="flex items-center bg-card border border-primary/20 rounded-2xl px-4 py-2">
             <div className="flex flex-col mr-4">
-              <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest leading-tight">Wallet Balance</span>
+              <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest leading-tight">Credits</span>
               <span className="text-xl font-code font-black text-primary italic leading-none">
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
@@ -88,7 +84,7 @@ export default function DashboardPage() {
             <Button 
               onClick={navigateToCredits}
               size="icon" 
-              className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90 shadow-lg active:scale-95 transition-all"
+              className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90"
             >
               <Plus className="h-5 w-5" />
             </Button>
@@ -96,7 +92,7 @@ export default function DashboardPage() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-12 w-12 rounded-2xl border border-white/10 p-0 overflow-hidden hover:border-primary/50 transition-all focus:ring-0">
+              <Button variant="ghost" className="relative h-12 w-12 rounded-2xl border border-white/10 p-0 overflow-hidden">
                 <Avatar className="h-full w-full rounded-none">
                   <AvatarImage src={user.photoURL || ""} alt={user.displayName || "User"} />
                   <AvatarFallback className="bg-primary/10 text-primary font-bold">
@@ -106,23 +102,23 @@ export default function DashboardPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-64 mt-2 border-primary/20 bg-card p-2" align="end">
-              <DropdownMenuLabel className="font-headline pb-3">
+              <DropdownMenuLabel className="pb-3">
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-black leading-none">{user.displayName}</p>
-                  <p className="text-[10px] leading-none text-muted-foreground truncate opacity-70">{user.email}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/5" />
               <DropdownMenuItem 
                 onClick={navigateToCredits}
-                className="flex items-center w-full py-2.5 px-3 rounded-xl focus:bg-primary/10 cursor-pointer group"
+                className="flex items-center w-full py-2.5 px-3 rounded-xl cursor-pointer group"
               >
-                <Plus className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+                <Plus className="mr-2 h-4 w-4 text-primary" />
                 <span className="text-primary font-bold">Add Credits</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/5" />
               <DropdownMenuItem 
-                className="text-destructive focus:bg-destructive/10 cursor-pointer py-2.5 px-3 rounded-xl flex items-center" 
+                className="text-destructive cursor-pointer py-2.5 px-3 rounded-xl flex items-center" 
                 onClick={handleLogout}
               >
                 <LogOut className="mr-2 h-4 w-4" />
