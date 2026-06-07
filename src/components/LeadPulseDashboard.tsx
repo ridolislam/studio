@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useCallback, useRef } from "react";
@@ -14,7 +15,8 @@ import {
   XCircle, 
   Search,
   FileSpreadsheet,
-  AlertTriangle
+  AlertTriangle,
+  Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -55,7 +57,6 @@ export default function LeadPulseDashboard() {
   const [progress, setProgress] = useState(0);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [logs, setLogs] = useState<ProcessingLog[]>([]);
-  const [usage, setUsage] = useState(0);
   const { toast } = useToast();
   
   const processingRef = useRef<boolean>(false);
@@ -85,10 +86,8 @@ export default function LeadPulseDashboard() {
   const classifyPhone = (phone: string): "Mobile" | "Landline" | "Invalid" => {
     const clean = phone.replace(/[^0-9]/g, "");
     if (clean.length < 5) return "Invalid";
-    // Basic logic for BD mobile numbers starting with 01
     if (clean.startsWith("01") && clean.length === 11) return "Mobile";
     if (clean.startsWith("8801") && clean.length === 13) return "Mobile";
-    // Fixed lines typically have different lengths or prefixes
     if (clean.length >= 6 && clean.length <= 10) return "Landline";
     return "Invalid";
   };
@@ -106,7 +105,6 @@ export default function LeadPulseDashboard() {
     setIsProcessing(true);
     processingRef.current = true;
     setProgress(0);
-    setUsage(Math.floor(Math.random() * 30) + 10);
     addLog("Starting extraction process...", "info");
 
     try {
@@ -123,7 +121,6 @@ export default function LeadPulseDashboard() {
           textContent = XLSX.utils.sheet_to_txt(firstSheet);
         }
 
-        // Simulate chunked processing to show progress
         const chunks = textContent.match(/.{1,2000}/gs) || [textContent];
         const totalChunks = chunks.length;
 
@@ -137,9 +134,6 @@ export default function LeadPulseDashboard() {
             });
 
             const newLeads: Lead[] = [];
-            
-            // Map extracted data into Lead objects
-            // Note: GenAI returns arrays. We zip them or process them into entries.
             const maxLength = Math.max(
               extracted.businessNames.length, 
               extracted.phoneNumbers.length, 
@@ -160,7 +154,6 @@ export default function LeadPulseDashboard() {
 
             setLeads(prev => [...newLeads, ...prev]);
             setProgress(Math.round(((i + 1) / totalChunks) * 100));
-            setUsage(prev => Math.min(100, prev + Math.floor(Math.random() * 5)));
             addLog(`Processed chunk ${i + 1}/${totalChunks}. Found ${newLeads.length} leads.`, "success");
           } catch (err) {
             addLog(`Error processing chunk ${i + 1}: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
@@ -268,49 +261,45 @@ export default function LeadPulseDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-accent/20 bg-card shadow-lg">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-headline uppercase tracking-widest text-accent">Real-time Analytics</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6 pt-2">
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-code">
-                <span className="text-muted-foreground">Usage Limit</span>
-                <span className="text-accent">{usage}/100</span>
+        {/* Live Counters Mini Boxes */}
+        <div className="grid grid-cols-1 gap-3">
+          <div className="bg-card border border-primary/20 rounded-xl p-4 flex items-center justify-between shadow-sm hover:bg-primary/5 transition-colors group">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all">
+                <Phone className="h-4 w-4" />
               </div>
-              <Progress value={usage} className="h-2 bg-muted [&>div]:bg-accent" />
+              <span className="text-sm font-medium">Mobile</span>
             </div>
+            <span className="text-xl font-code font-bold text-primary">{stats.mobile}</span>
+          </div>
 
-            <div className="grid grid-cols-1 gap-4">
-              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-muted">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-md bg-primary/10 text-primary">
-                    <Building2 className="h-4 w-4" />
-                  </div>
-                  <span className="text-sm font-medium">Key Indexing</span>
-                </div>
-                <span className="font-code font-bold">{leads.length}</span>
+          <div className="bg-card border border-accent/20 rounded-xl p-4 flex items-center justify-between shadow-sm hover:bg-accent/5 transition-colors group">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-accent/10 text-accent group-hover:bg-accent group-hover:text-accent-foreground transition-all">
+                <Building2 className="h-4 w-4" />
               </div>
-              
-              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-muted">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-md bg-accent/10 text-accent">
-                    <Search className="h-4 w-4" />
-                  </div>
-                  <span className="text-sm font-medium">Scanned Items</span>
-                </div>
-                <span className="font-code font-bold">{(progress * 1.5).toFixed(0)}</span>
-              </div>
+              <span className="text-sm font-medium">Landline</span>
             </div>
-          </CardContent>
-        </Card>
+            <span className="text-xl font-code font-bold text-accent">{stats.landline}</span>
+          </div>
 
-        <Card className="border-muted bg-card shadow-lg h-[300px] flex flex-col">
+          <div className="bg-card border border-destructive/20 rounded-xl p-4 flex items-center justify-between shadow-sm hover:bg-destructive/5 transition-colors group">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-destructive/10 text-destructive group-hover:bg-destructive group-hover:text-destructive-foreground transition-all">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <span className="text-sm font-medium">Invalid</span>
+            </div>
+            <span className="text-xl font-code font-bold text-destructive">{stats.invalid}</span>
+          </div>
+        </div>
+
+        <Card className="border-muted bg-card shadow-lg h-[250px] flex flex-col">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-headline uppercase tracking-widest">Operation Logs</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden pt-2 px-0">
-            <ScrollArea className="h-[230px] px-4">
+            <ScrollArea className="h-[180px] px-4">
               <div className="space-y-3">
                 {logs.length === 0 && <p className="text-xs text-muted-foreground italic text-center py-8">Waiting for input...</p>}
                 {logs.map((log) => (
