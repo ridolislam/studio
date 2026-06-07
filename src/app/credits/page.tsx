@@ -22,32 +22,18 @@ export default function CreditsPage() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [initError, setInitError] = useState<string | null>(null);
 
   const PRICE_PER_CREDIT = 0.05; 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
   useEffect(() => {
     setIsMounted(true);
-    console.log("CreditsPage: Component Mounted");
-
-    // Force check after 3 seconds if still loading
-    const timer = setTimeout(() => {
-      if (!currentUser && !hookUser && !auth.currentUser) {
-        console.warn("CreditsPage: Auth Timeout. No user found.");
-        setInitError("Auth timeout. Please ensure you are logged in.");
-      }
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, [auth, hookUser, currentUser]);
+  }, []);
 
   useEffect(() => {
     if (hookUser) {
-      console.log("CreditsPage: User found from hook", hookUser.uid);
       setCurrentUser(hookUser);
     } else if (auth.currentUser) {
-      console.log("CreditsPage: User found from direct auth", auth.currentUser.uid);
       setCurrentUser(auth.currentUser);
     }
   }, [hookUser, auth.currentUser]);
@@ -60,22 +46,8 @@ export default function CreditsPage() {
     
     setIsPurchasing(true);
     try {
-      console.log("CreditsPage: Starting purchase for user", currentUser.uid);
       const userRef = doc(db, "users", currentUser.uid);
       
-      // Check if document exists first to avoid confusing errors
-      const docSnap = await getDoc(userRef);
-      if (!docSnap.exists()) {
-        console.error("CreditsPage: User document does not exist in Firestore.");
-        toast({ 
-          variant: "destructive", 
-          title: "Setup Error", 
-          description: "User profile not found in Firestore. Please sign up again." 
-        });
-        setIsPurchasing(false);
-        return;
-      }
-
       await updateDoc(userRef, {
         credits: increment(creditAmount)
       });
@@ -87,7 +59,7 @@ export default function CreditsPage() {
       toast({ 
         variant: "destructive", 
         title: "Transaction Failed", 
-        description: error.message || "Failed to update credits." 
+        description: error.message || "Check Firestore Rules and try again." 
       });
     } finally {
       setIsPurchasing(false);
@@ -96,37 +68,13 @@ export default function CreditsPage() {
 
   if (!isMounted) return null;
 
-  if (hookLoading && !currentUser && !initError) {
+  if (hookLoading && !currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-xs font-bold animate-pulse uppercase tracking-widest">Checking Authentication...</p>
-          <p className="text-[10px] text-muted-foreground italic">If this takes too long, check Firebase Console Auth settings.</p>
+          <p className="text-xs font-bold uppercase tracking-widest">Initializing Wallet...</p>
         </div>
-      </div>
-    );
-  }
-
-  if (initError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="max-w-md w-full border-destructive/20 bg-destructive/5">
-          <CardHeader>
-            <CardTitle className="text-destructive font-black">Auth Issue Detected</CardTitle>
-            <CardDescription>{initError}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">Please ensure:</p>
-            <ul className="text-xs space-y-2 mt-2 list-disc pl-4 text-muted-foreground">
-              <li>Firebase Auth (Email/Google) is enabled in Console.</li>
-              <li>You are actually logged in.</li>
-            </ul>
-          </CardContent>
-          <CardFooter>
-            <Button onClick={() => router.push("/login")} className="w-full">Go to Login</Button>
-          </CardFooter>
-        </Card>
       </div>
     );
   }
@@ -151,7 +99,7 @@ export default function CreditsPage() {
 
         <div className="text-center space-y-4">
           <h1 className="text-5xl md:text-7xl font-black italic text-3d tracking-tighter uppercase">Refill Wallet</h1>
-          <p className="text-muted-foreground font-medium">Add credits to your account by typing the amount below.</p>
+          <p className="text-muted-foreground font-medium">Add credits to your account instantly.</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
@@ -194,9 +142,9 @@ export default function CreditsPage() {
 
           <Card className="lg:col-span-2 border-white/5 bg-card/40 flex flex-col justify-center">
             <CardContent className="p-10 space-y-6">
-              <h3 className="text-2xl font-black italic">Helpful Tip</h3>
+              <h3 className="text-2xl font-black italic">Rules Check</h3>
               <p className="text-sm text-muted-foreground">
-                If the payment doesn't update, please ensure **Firestore Database** is enabled in your Firebase Console.
+                Ensure your Firestore rules allow writes to `/users/{`{userId}`}`.
               </p>
               <ul className="space-y-4">
                 {["No Expiration", "Bulk Processing", "AI Validation", "Premium Support"].map((feat, i) => (
