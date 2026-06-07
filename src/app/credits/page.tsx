@@ -21,7 +21,6 @@ export default function CreditsPage() {
   const [creditAmount, setCreditAmount] = useState<number>(500);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const [currentUser, setCurrentUser] = useState<any>(null);
   const [initTimeout, setInitTimeout] = useState(false);
 
   const PRICE_PER_CREDIT = 0.05; 
@@ -29,25 +28,18 @@ export default function CreditsPage() {
 
   useEffect(() => {
     setIsMounted(true);
+    // যদি ২ সেকেন্ডের মধ্যে ডাটা না আসে, লোডিং স্ক্রিন সরিয়ে দেব
     const timer = setTimeout(() => {
       setInitTimeout(true);
     }, 2000);
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (hookUser) {
-      setCurrentUser(hookUser);
-      console.log("CreditsPage: User detected", hookUser.uid);
-    } else if (auth.currentUser) {
-      setCurrentUser(auth.currentUser);
-      console.log("CreditsPage: User detected via direct auth", auth.currentUser.uid);
-    }
-  }, [hookUser, auth.currentUser]);
-
   const handlePurchase = async () => {
+    const currentUser = hookUser || auth.currentUser;
+    
     if (!currentUser) {
-      toast({ variant: "destructive", title: "Auth Error", description: "Login required." });
+      toast({ variant: "destructive", title: "Auth Error", description: "Please login to purchase credits." });
       return;
     }
     
@@ -69,14 +61,14 @@ export default function CreditsPage() {
         });
       }
       
-      toast({ title: "Success!", description: `${creditAmount} credits added.` });
+      toast({ title: "Success!", description: `${creditAmount} credits added successfully.` });
       router.push("/dashboard");
     } catch (error: any) {
       console.error("Purchase Error:", error);
       toast({ 
         variant: "destructive", 
-        title: "Error", 
-        description: "Firestore Rules update required in Firebase Console." 
+        title: "Permission Denied", 
+        description: "Please update Firestore Rules in the Firebase Console (Cloud Firestore > Rules)." 
       });
     } finally {
       setIsPurchasing(false);
@@ -85,14 +77,15 @@ export default function CreditsPage() {
 
   if (!isMounted) return null;
 
-  const isLoading = (hookLoading && !currentUser) && !initTimeout;
+  // যদি ইউজার লোড হচ্ছে কিন্তু টাইমআউট হয়ে গেছে, তবে আমরা পেজটি দেখাব
+  const isLoading = (hookLoading && !hookUser && !auth.currentUser) && !initTimeout;
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Checking Access...</p>
+          <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Initializing Checkout...</p>
         </div>
       </div>
     );
@@ -167,7 +160,7 @@ export default function CreditsPage() {
                   Important
                 </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Firestore Database &gt; Rules).
+                  Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Cloud Firestore {'>'} Rules).
                 </p>
               </div>
               <ul className="space-y-4">
