@@ -25,27 +25,18 @@ export default function CreditsPage() {
   const PRICE_PER_CREDIT = 0.05; 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
-  // Debug Logging
-  console.log("CreditsPage Render:", { isMounted, authLoading, hasUser: !!user });
-
   useEffect(() => {
-    console.log("CreditsPage: Component Mounted");
     setIsMounted(true);
   }, []);
 
   useEffect(() => {
-    if (isMounted) {
-      console.log("CreditsPage Auth State Update:", { authLoading, hasUser: !!user });
-      if (!authLoading && !user) {
-        console.warn("CreditsPage: No user found, redirecting to login...");
-        router.replace("/login");
-      }
+    if (isMounted && !authLoading && !user) {
+      router.replace("/login");
     }
   }, [user, authLoading, isMounted, router]);
 
   const handlePurchase = async () => {
     if (!user) {
-      console.error("Purchase attempt without user context");
       toast({
         variant: "destructive",
         title: "Authentication Error",
@@ -64,7 +55,6 @@ export default function CreditsPage() {
     }
     
     setIsPurchasing(true);
-    console.log("Initiating purchase for:", creditAmount, "credits");
     try {
       await new Promise(resolve => setTimeout(resolve, 1500));
       
@@ -73,50 +63,37 @@ export default function CreditsPage() {
         credits: increment(creditAmount)
       });
 
-      console.log("Purchase successful!");
       toast({
         title: "Transaction Complete!",
-        description: `${creditAmount} credits have been added to your wallet successfully.`,
+        description: `${creditAmount} credits have been added successfully.`,
       });
       
       router.push("/dashboard");
     } catch (error) {
-      console.error("Purchase process failed:", error);
       toast({
         variant: "destructive",
         title: "Payment Failed",
-        description: "There was an issue processing your request. Please try again.",
+        description: "Could not process request.",
       });
     } finally {
       setIsPurchasing(false);
     }
   };
 
-  if (!isMounted || authLoading) {
-    console.log("CreditsPage: Showing Loading Screen...");
+  if (!isMounted) return null;
+
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-6">
-          <div className="relative">
-            <div className="h-20 w-20 rounded-2xl border-2 border-primary/20 animate-spin border-t-primary"></div>
-            <Zap className="absolute inset-0 m-auto h-8 w-8 text-primary animate-pulse" />
-          </div>
-          <div className="text-center space-y-2">
-            <p className="text-xl font-black italic tracking-tighter uppercase animate-pulse">Initializing Checkout</p>
-            <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">Securing Connection...</p>
-            <p className="text-[10px] text-muted-foreground opacity-50">Auth Loading: {authLoading ? 'Yes' : 'No'}</p>
-          </div>
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <p className="text-sm font-bold animate-pulse">Checking Wallet Status...</p>
         </div>
       </div>
     );
   }
 
-  if (!user) {
-    console.log("CreditsPage: User is null, waiting for redirect");
-    return null;
-  }
-
-  console.log("CreditsPage: Rendering Main UI");
+  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-12">
@@ -138,22 +115,18 @@ export default function CreditsPage() {
 
         <div className="text-center space-y-4 max-w-2xl mx-auto">
           <h1 className="text-5xl md:text-7xl font-black italic text-3d tracking-tighter uppercase leading-none">Refill Wallet</h1>
-          <p className="text-muted-foreground text-lg leading-tight font-medium">Add credits to your account to process more leads with AI-powered accuracy.</p>
+          <p className="text-muted-foreground text-lg leading-tight font-medium">Add credits to process more leads with AI-powered accuracy.</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-10 items-start">
           <Card className="lg:col-span-3 border-primary/20 bg-card shadow-2xl relative overflow-hidden flex flex-col justify-between">
-            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-primary via-accent to-primary animate-pulse"></div>
+            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-primary via-accent to-primary"></div>
             <CardHeader className="pt-8 px-8">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-3xl font-black italic flex items-center gap-2">
-                    Custom Amount
-                    <Sparkles className="h-6 w-6 text-primary" />
-                  </CardTitle>
-                  <CardDescription className="text-sm font-medium mt-1">Select the exact number of credits you want</CardDescription>
-                </div>
-              </div>
+              <CardTitle className="text-3xl font-black italic flex items-center gap-2">
+                Custom Amount
+                <Sparkles className="h-6 w-6 text-primary" />
+              </CardTitle>
+              <CardDescription className="text-sm font-medium mt-1">Select the exact number of credits you want</CardDescription>
             </CardHeader>
             <CardContent className="space-y-10 p-8">
               <div className="space-y-4">
@@ -166,10 +139,10 @@ export default function CreditsPage() {
                     type="number"
                     value={creditAmount}
                     onChange={(e) => setCreditAmount(Math.max(0, parseInt(e.target.value) || 0))}
-                    className="h-20 text-4xl font-code font-black text-primary bg-muted/20 border-white/10 rounded-3xl pl-16 focus:ring-primary focus:border-primary/50 transition-all"
+                    className="h-20 text-4xl font-code font-black text-primary bg-muted/20 border-white/10 rounded-3xl pl-16 focus:ring-primary transition-all"
                     placeholder="500"
                   />
-                  <Zap className="absolute left-6 top-1/2 -translate-y-1/2 h-8 w-8 text-primary opacity-50 group-focus-within:opacity-100 transition-opacity" />
+                  <Zap className="absolute left-6 top-1/2 -translate-y-1/2 h-8 w-8 text-primary opacity-50" />
                 </div>
               </div>
 
@@ -185,16 +158,9 @@ export default function CreditsPage() {
               <Button 
                 onClick={handlePurchase}
                 disabled={isPurchasing || creditAmount < 100}
-                className="w-full h-16 text-2xl font-black italic bg-primary hover:bg-primary/90 text-primary-foreground rounded-3xl shadow-[0_6px_0_0_rgba(0,0,0,0.3)] active:translate-y-1.5 active:shadow-none transition-all flex items-center justify-center gap-3"
+                className="w-full h-16 text-2xl font-black italic bg-primary hover:bg-primary/90 text-primary-foreground rounded-3xl shadow-[0_6px_0_0_rgba(0,0,0,0.3)] active:translate-y-1.5 transition-all flex items-center justify-center gap-3"
               >
-                {isPurchasing ? (
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                ) : (
-                  <>
-                    <CreditCard className="h-7 w-7" /> 
-                    BUY {creditAmount} CREDITS
-                  </>
-                )}
+                {isPurchasing ? <Loader2 className="h-8 w-8 animate-spin" /> : <><CreditCard className="h-7 w-7" /> BUY {creditAmount} CREDITS</>}
               </Button>
             </CardFooter>
           </Card>
@@ -212,7 +178,7 @@ export default function CreditsPage() {
                     { text: "Data Priority", desc: "Your requests go to the front of the line." }
                   ].map((feat, i) => (
                     <li key={i} className="flex items-start gap-4 group">
-                      <div className="mt-1 h-6 w-6 rounded-full bg-green-500/10 flex items-center justify-center shrink-0 group-hover:bg-green-500/20 transition-colors">
+                      <div className="mt-1 h-6 w-6 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
                         <Check className="h-3.5 w-3.5 text-green-500" />
                       </div>
                       <div className="space-y-0.5">
@@ -222,19 +188,6 @@ export default function CreditsPage() {
                     </li>
                   ))}
                 </ul>
-              </div>
-
-              <div className="pt-8 border-t border-white/5 space-y-4">
-                <div className="flex items-center gap-4 p-5 bg-muted/40 rounded-3xl border border-white/5 shadow-sm">
-                  <div className="p-3 bg-primary/10 rounded-2xl">
-                    <DollarSign className="h-7 w-7 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-black uppercase tracking-tight">Secured Payment</p>
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest leading-none">SSL Encrypted Transaction</p>
-                  </div>
-                </div>
-                <p className="text-[10px] text-center text-muted-foreground font-medium italic">By clicking "Buy Now", you agree to our terms of service.</p>
               </div>
             </CardContent>
           </Card>

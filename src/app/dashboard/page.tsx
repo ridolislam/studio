@@ -30,29 +30,21 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setIsMounted(true);
-    console.log("Dashboard: Component Mounted");
   }, []);
 
   const userProfileRef = user ? doc(db, "users", user.uid) : null;
   const { data: profile, loading: profileLoading } = useDoc(userProfileRef);
 
   const handleLogout = async () => {
-    console.log("Dashboard: Logging out...");
     await signOut(auth);
     router.push("/login");
   };
 
   useEffect(() => {
     if (isMounted && !userLoading && !user) {
-      console.warn("Dashboard: Unauthorized, redirecting to login");
       router.push("/login");
     }
   }, [user, userLoading, isMounted, router]);
-
-  const navigateToCredits = () => {
-    console.log("Dashboard: Navigating to /credits");
-    router.push("/credits");
-  };
 
   if (!isMounted || userLoading) {
     return (
@@ -88,13 +80,14 @@ export default function DashboardPage() {
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
             </div>
-            <Button 
-              size="icon" 
-              onClick={navigateToCredits}
-              className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90 shadow-lg active:scale-95 transition-all"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
+            <Link href="/credits">
+              <Button 
+                size="icon" 
+                className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90 shadow-lg active:scale-95 transition-all"
+              >
+                <Plus className="h-5 w-5" />
+              </Button>
+            </Link>
           </div>
 
           <DropdownMenu>
@@ -116,9 +109,11 @@ export default function DashboardPage() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/5" />
-              <DropdownMenuItem onClick={navigateToCredits} className="flex items-center w-full py-2.5 px-3 rounded-xl focus:bg-primary/10 cursor-pointer group">
-                <Plus className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
-                <span className="text-primary font-bold">Add Credits</span>
+              <DropdownMenuItem asChild>
+                <Link href="/credits" className="flex items-center w-full py-2.5 px-3 rounded-xl focus:bg-primary/10 cursor-pointer group">
+                  <Plus className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+                  <span className="text-primary font-bold">Add Credits</span>
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/5" />
               <DropdownMenuItem 
