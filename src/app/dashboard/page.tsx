@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { useAuth } from "@/firebase";
+import Link from "next/link";
 
 export default function DashboardPage() {
   const { user, loading: userLoading } = useUser();
@@ -32,10 +33,6 @@ export default function DashboardPage() {
   const handleLogout = async () => {
     await signOut(auth);
     router.push("/login");
-  };
-
-  const navigateToCredits = () => {
-    router.push("/dashboard/credits");
   };
 
   if (userLoading) {
@@ -56,12 +53,12 @@ export default function DashboardPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
-          <div className="relative group cursor-pointer" onClick={() => router.push("/")}>
+          <Link href="/" className="relative group cursor-pointer">
             <div className="absolute -inset-1 bg-gradient-to-r from-primary to-accent rounded-xl blur opacity-25 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
             <div className="relative bg-card p-3 rounded-xl border border-primary/20 shadow-2xl transform transition hover:scale-110 duration-500">
               <Zap className="h-8 w-8 text-primary" />
             </div>
-          </div>
+          </Link>
           <div>
             <h1 className="text-4xl font-black tracking-tighter font-headline text-primary italic">numcheckr</h1>
             <p className="text-muted-foreground text-xs uppercase tracking-[0.2em] font-semibold">Validator Pro</p>
@@ -78,13 +75,14 @@ export default function DashboardPage() {
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
             </div>
-            <Button 
-              size="icon" 
-              onClick={navigateToCredits}
-              className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg transform transition active:scale-95"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
+            <Link href="/dashboard/credits">
+              <Button 
+                size="icon" 
+                className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg transform transition active:scale-95"
+              >
+                <Plus className="h-5 w-5" />
+              </Button>
+            </Link>
           </div>
 
           {/* User Profile Dropdown */}
@@ -111,13 +109,14 @@ export default function DashboardPage() {
                 <User className="mr-2 h-4 w-4" />
                 <span>Account Details</span>
               </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={navigateToCredits}
-                className="focus:bg-primary/10 cursor-pointer text-primary font-bold"
-              >
-                <Wallet className="mr-2 h-4 w-4" />
-                <span>Add Credits</span>
-              </DropdownMenuItem>
+              <Link href="/dashboard/credits">
+                <DropdownMenuItem 
+                  className="focus:bg-primary/10 cursor-pointer text-primary font-bold"
+                >
+                  <Wallet className="mr-2 h-4 w-4" />
+                  <span>Add Credits</span>
+                </DropdownMenuItem>
+              </Link>
               <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem className="text-destructive focus:bg-destructive/10 cursor-pointer" onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />

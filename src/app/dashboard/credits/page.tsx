@@ -10,6 +10,7 @@ import { useUser, useFirestore } from "@/firebase";
 import { doc, updateDoc, increment } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function CreditsPage() {
   const { user, loading: authLoading } = useUser();
@@ -24,12 +25,11 @@ export default function CreditsPage() {
   const PRICE_PER_CREDIT = 0.05; // $0.05 per credit
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
-  // Avoid hydration issues
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
-  // Redirect if not logged in
+  // Redirect only if we are sure the user is not logged in after mount
   useEffect(() => {
     if (isMounted && !authLoading && !user) {
       router.push("/login");
@@ -37,7 +37,15 @@ export default function CreditsPage() {
   }, [user, authLoading, isMounted, router]);
 
   const handlePurchase = async () => {
-    if (!user) return;
+    if (!user) {
+      toast({
+        variant: "destructive",
+        title: "অথেন্টিকেশন এরর",
+        description: "ক্রেডিট কিনতে দয়া করে লগইন করুন।",
+      });
+      return;
+    }
+    
     if (creditAmount < 100) {
       toast({
         variant: "destructive",
@@ -74,7 +82,8 @@ export default function CreditsPage() {
     }
   };
 
-  if (!isMounted || authLoading) {
+  // Improved loading state: Don't block the whole page if already mounted and not loading auth
+  if (!isMounted || (authLoading && !user)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -90,14 +99,16 @@ export default function CreditsPage() {
       <div className="container mx-auto max-w-4xl space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <Button variant="ghost" className="group" onClick={() => router.push("/dashboard")}>
-            <ArrowLeft className="mr-2 h-4 w-4 transition-transform group-hover:-translate-x-1" />
-            ড্যাশবোর্ড
-          </Button>
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/dashboard")}>
+          <Link href="/dashboard">
+            <Button variant="ghost" className="group">
+              <ArrowLeft className="mr-2 h-4 w-4 transition-transform group-hover:-translate-x-1" />
+              ড্যাশবোর্ড
+            </Button>
+          </Link>
+          <Link href="/dashboard" className="flex items-center gap-2 cursor-pointer">
             <Zap className="h-5 w-5 text-primary" />
             <span className="text-xl font-black italic">numcheckr</span>
-          </div>
+          </Link>
         </div>
 
         <div className="text-center space-y-4">
