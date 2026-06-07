@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useUser, useFirestore, useAuth } from "@/firebase";
-import { doc, updateDoc, increment } from "firebase/firestore";
+import { doc, updateDoc, increment, getDoc, setDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
@@ -29,45 +29,54 @@ export default function CreditsPage() {
 
   useEffect(() => {
     setIsMounted(true);
-    // Fallback if auth takes too long
     const timer = setTimeout(() => {
       setInitTimeout(true);
-    }, 3000);
+    }, 2000);
     return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     if (hookUser) {
       setCurrentUser(hookUser);
-      console.log("CreditsPage: User found from hook", hookUser.uid);
+      console.log("CreditsPage: User detected", hookUser.uid);
     } else if (auth.currentUser) {
       setCurrentUser(auth.currentUser);
-      console.log("CreditsPage: User found from direct auth", auth.currentUser.uid);
+      console.log("CreditsPage: User detected via direct auth", auth.currentUser.uid);
     }
   }, [hookUser, auth.currentUser]);
 
   const handlePurchase = async () => {
     if (!currentUser) {
-      toast({ variant: "destructive", title: "Auth Error", description: "You must be logged in to buy credits." });
+      toast({ variant: "destructive", title: "Auth Error", description: "Login required." });
       return;
     }
     
     setIsPurchasing(true);
     try {
       const userRef = doc(db, "users", currentUser.uid);
+      const userSnap = await getDoc(userRef);
       
-      await updateDoc(userRef, {
-        credits: increment(creditAmount)
-      });
+      if (!userSnap.exists()) {
+        await setDoc(userRef, {
+          uid: currentUser.uid,
+          email: currentUser.email,
+          credits: creditAmount,
+          createdAt: new Date().toISOString()
+        });
+      } else {
+        await updateDoc(userRef, {
+          credits: increment(creditAmount)
+        });
+      }
       
-      toast({ title: "Success!", description: `${creditAmount} credits added to your wallet.` });
+      toast({ title: "Success!", description: `${creditAmount} credits added.` });
       router.push("/dashboard");
     } catch (error: any) {
-      console.error("CreditsPage: Purchase Error", error);
+      console.error("Purchase Error:", error);
       toast({ 
         variant: "destructive", 
-        title: "Transaction Failed", 
-        description: "Please check your Firestore Rules in Firebase Console." 
+        title: "Error", 
+        description: "Firestore Rules update required in Firebase Console." 
       });
     } finally {
       setIsPurchasing(false);
@@ -76,24 +85,17 @@ export default function CreditsPage() {
 
   if (!isMounted) return null;
 
-  // Show the UI even if loading takes a bit long, provided we have a user or timeout reached
-  const isLoading = hookLoading && !currentUser && !initTimeout;
+  const isLoading = (hookLoading && !currentUser) && !initTimeout;
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Initializing Checkout...</p>
+          <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Checking Access...</p>
         </div>
       </div>
     );
-  }
-
-  // If no user after timeout, redirect to login
-  if (!currentUser && initTimeout && !hookLoading) {
-    router.push("/login");
-    return null;
   }
 
   return (
