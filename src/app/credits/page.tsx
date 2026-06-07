@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard } from "lucide-react";
+import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,25 +22,33 @@ export default function CreditsPage() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [initTimeout, setInitTimeout] = useState(false);
 
   const PRICE_PER_CREDIT = 0.05; 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
   useEffect(() => {
     setIsMounted(true);
+    // Fallback if auth takes too long
+    const timer = setTimeout(() => {
+      setInitTimeout(true);
+    }, 3000);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
     if (hookUser) {
       setCurrentUser(hookUser);
+      console.log("CreditsPage: User found from hook", hookUser.uid);
     } else if (auth.currentUser) {
       setCurrentUser(auth.currentUser);
+      console.log("CreditsPage: User found from direct auth", auth.currentUser.uid);
     }
   }, [hookUser, auth.currentUser]);
 
   const handlePurchase = async () => {
     if (!currentUser) {
-      toast({ variant: "destructive", title: "Auth Error", description: "You must be logged in." });
+      toast({ variant: "destructive", title: "Auth Error", description: "You must be logged in to buy credits." });
       return;
     }
     
@@ -52,14 +60,14 @@ export default function CreditsPage() {
         credits: increment(creditAmount)
       });
       
-      toast({ title: "Success!", description: `${creditAmount} credits added.` });
+      toast({ title: "Success!", description: `${creditAmount} credits added to your wallet.` });
       router.push("/dashboard");
     } catch (error: any) {
-      console.error("CreditsPage: Transaction Error", error);
+      console.error("CreditsPage: Purchase Error", error);
       toast({ 
         variant: "destructive", 
         title: "Transaction Failed", 
-        description: error.message || "Check Firestore Rules and try again." 
+        description: "Please check your Firestore Rules in Firebase Console." 
       });
     } finally {
       setIsPurchasing(false);
@@ -68,15 +76,24 @@ export default function CreditsPage() {
 
   if (!isMounted) return null;
 
-  if (hookLoading && !currentUser) {
+  // Show the UI even if loading takes a bit long, provided we have a user or timeout reached
+  const isLoading = hookLoading && !currentUser && !initTimeout;
+
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-xs font-bold uppercase tracking-widest">Initializing Wallet...</p>
+          <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Initializing Checkout...</p>
         </div>
       </div>
     );
+  }
+
+  // If no user after timeout, redirect to login
+  if (!currentUser && initTimeout && !hookLoading) {
+    router.push("/login");
+    return null;
   }
 
   return (
@@ -85,11 +102,11 @@ export default function CreditsPage() {
         <div className="flex items-center justify-between">
           <Button 
             variant="ghost" 
-            className="rounded-2xl border border-white/5"
+            className="rounded-2xl border border-white/5 hover:bg-white/5"
             onClick={() => router.push("/dashboard")}
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            <span className="font-bold">Back</span>
+            <span className="font-bold">Dashboard</span>
           </Button>
           <div className="flex items-center gap-2">
             <Zap className="h-6 w-6 text-primary" />
@@ -98,8 +115,8 @@ export default function CreditsPage() {
         </div>
 
         <div className="text-center space-y-4">
-          <h1 className="text-5xl md:text-7xl font-black italic text-3d tracking-tighter uppercase">Refill Wallet</h1>
-          <p className="text-muted-foreground font-medium">Add credits to your account instantly.</p>
+          <h1 className="text-5xl md:text-7xl font-black italic text-3d tracking-tighter uppercase">Add Credits</h1>
+          <p className="text-muted-foreground font-medium">Power up your lead validation engine.</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
@@ -107,7 +124,7 @@ export default function CreditsPage() {
             <div className="absolute top-0 left-0 w-full h-1.5 bg-primary"></div>
             <CardHeader className="pt-8 px-8">
               <CardTitle className="text-3xl font-black italic flex items-center gap-2">
-                Type Amount
+                Order Amount
                 <Sparkles className="h-6 w-6 text-primary" />
               </CardTitle>
             </CardHeader>
@@ -117,7 +134,7 @@ export default function CreditsPage() {
                   type="number"
                   value={creditAmount}
                   onChange={(e) => setCreditAmount(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="h-20 text-4xl font-code font-black text-primary bg-muted/20 border-white/10 rounded-3xl pl-16"
+                  className="h-20 text-4xl font-code font-black text-primary bg-muted/20 border-white/10 rounded-3xl pl-12"
                   placeholder="500"
                 />
               </div>
@@ -133,24 +150,31 @@ export default function CreditsPage() {
               <Button 
                 onClick={handlePurchase}
                 disabled={isPurchasing || creditAmount < 100}
-                className="w-full h-16 text-2xl font-black italic bg-primary rounded-3xl shadow-[0_6px_0_0_rgba(0,0,0,0.3)] active:translate-y-1 transition-all"
+                className="w-full h-16 text-2xl font-black italic bg-primary hover:bg-primary/90 rounded-3xl shadow-[0_6px_0_0_rgba(0,0,0,0.3)] active:translate-y-1 transition-all"
               >
-                {isPurchasing ? <Loader2 className="h-8 w-8 animate-spin" /> : "BUY NOW"}
+                {isPurchasing ? <Loader2 className="h-8 w-8 animate-spin" /> : "PURCHASE NOW"}
               </Button>
             </CardFooter>
           </Card>
 
           <Card className="lg:col-span-2 border-white/5 bg-card/40 flex flex-col justify-center">
-            <CardContent className="p-10 space-y-6">
-              <h3 className="text-2xl font-black italic">Rules Check</h3>
-              <p className="text-sm text-muted-foreground">
-                Ensure your Firestore rules allow writes to `/users/{`{userId}`}`.
-              </p>
+            <CardContent className="p-10 space-y-8">
+              <div className="space-y-4">
+                <h3 className="text-2xl font-black italic flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-primary" />
+                  Important
+                </h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Firestore Database > Rules).
+                </p>
+              </div>
               <ul className="space-y-4">
-                {["No Expiration", "Bulk Processing", "AI Validation", "Premium Support"].map((feat, i) => (
+                {["Lifetime Validity", "Instant Delivery", "Global Validation", "24/7 Support"].map((feat, i) => (
                   <li key={i} className="flex items-center gap-4">
-                    <Check className="h-5 w-5 text-green-500" />
-                    <span className="text-sm font-bold uppercase">{feat}</span>
+                    <div className="h-6 w-6 rounded-full bg-green-500/10 flex items-center justify-center">
+                      <Check className="h-4 w-4 text-green-500" />
+                    </div>
+                    <span className="text-sm font-bold uppercase tracking-tight">{feat}</span>
                   </li>
                 ))}
               </ul>
