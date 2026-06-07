@@ -24,20 +24,38 @@ export default function CreditsPage() {
   const PRICE_PER_CREDIT = 0.05; 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
+  // Debug: Component Mounting
   useEffect(() => {
     setIsMounted(true);
     console.log("CreditsPage: Component Mounted");
-  }, []);
+    toast({
+      title: "Diagnostic Info",
+      description: "Credits Page Mounted",
+    });
+  }, [toast]);
 
+  // Debug: Auth State Monitoring
   useEffect(() => {
     if (isMounted) {
       console.log("CreditsPage: Auth State ->", { authLoading, hasUser: !!user });
+      
+      // Popup alert for developer/user to see the state
+      toast({
+        title: "Auth State Update",
+        description: `Loading: ${authLoading}, User Logged In: ${!!user}`,
+      });
+
       if (!authLoading && !user) {
         console.log("CreditsPage: No user session, redirecting to /login");
+        toast({
+          variant: "destructive",
+          title: "Auth Status",
+          description: "No user detected. Redirecting to login...",
+        });
         router.replace("/login");
       }
     }
-  }, [user, authLoading, isMounted, router]);
+  }, [user, authLoading, isMounted, router, toast]);
 
   const handlePurchase = async () => {
     if (!user) {
@@ -105,8 +123,6 @@ export default function CreditsPage() {
     );
   }
 
-  // If loading is done and there's still no user, the useEffect will handle the redirect.
-  // We return a simple loader instead of null to prevent an empty screen while redirecting.
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
