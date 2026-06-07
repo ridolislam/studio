@@ -106,12 +106,14 @@ export default function DashboardPage() {
                 <User className="mr-2 h-4 w-4" />
                 <span>Account Details</span>
               </DropdownMenuItem>
-              <Link href="/dashboard/credits">
-                <DropdownMenuItem className="focus:bg-primary/10 cursor-pointer text-primary font-bold">
-                  <Wallet className="mr-2 h-4 w-4" />
-                  <span>Add Credits</span>
-                </DropdownMenuItem>
-              </Link>
+              <DropdownMenuItem asChild className="focus:bg-primary/10 cursor-pointer text-primary font-bold">
+                <Link href="/dashboard/credits">
+                  <div className="flex items-center w-full h-full">
+                    <Wallet className="mr-2 h-4 w-4" />
+                    <span>Add Credits</span>
+                  </div>
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem className="text-destructive focus:bg-destructive/10 cursor-pointer" onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
