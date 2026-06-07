@@ -19,13 +19,13 @@ export default function CreditsPage() {
   const { toast } = useToast();
   const router = useRouter();
   
-  const [creditAmount, setCreditAmount] = useState<number>(10000);
+  const [creditAmount, setCreditAmount] = useState<number>(1000);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
-  // New Rate: $0.00008 per credit
-  const RATE_PER_CREDIT = 0.00008; 
-  const totalPrice = (creditAmount * RATE_PER_CREDIT).toFixed(5);
+  // New Rate: $0.0008 per credit
+  const RATE_PER_CREDIT = 0.0008; 
+  const totalPrice = (creditAmount * RATE_PER_CREDIT).toFixed(4);
 
   useEffect(() => {
     setIsMounted(true);
@@ -107,7 +107,7 @@ export default function CreditsPage() {
             Scale Your <span className="text-primary">Growth</span>
           </h1>
           <p className="text-muted-foreground font-medium text-lg max-w-xl mx-auto">
-            Get premium validation credits at our lowest price ever of $0.00008 per request.
+            Get premium validation credits at our lowest price ever of $0.0008 per request.
           </p>
         </div>
 
@@ -151,7 +151,7 @@ export default function CreditsPage() {
                   <Slider 
                     value={[creditAmount]} 
                     onValueChange={(val) => setCreditAmount(val[0])} 
-                    max={500000} 
+                    max={100000} 
                     min={100}
                     step={100}
                     className="cursor-pointer"
@@ -159,7 +159,7 @@ export default function CreditsPage() {
                   <div className="flex justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                     <span>Min 100</span>
                     <span className="text-primary/70">Flexible Control</span>
-                    <span>Max 500,000</span>
+                    <span>Max 100,000</span>
                   </div>
                 </div>
               </div>
@@ -171,7 +171,7 @@ export default function CreditsPage() {
                   </div>
                   <div>
                     <p className="text-xs font-bold uppercase tracking-widest opacity-50">Unit Rate</p>
-                    <p className="text-lg font-black italic">$0.00008 <span className="text-[10px] not-italic text-muted-foreground">/ Credit</span></p>
+                    <p className="text-lg font-black italic">$0.0008 <span className="text-[10px] not-italic text-muted-foreground">/ Credit</span></p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 p-5 bg-muted/30 rounded-2xl border border-white/5">
@@ -234,7 +234,7 @@ export default function CreditsPage() {
             <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10 space-y-4">
               <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Need Assistance?</h4>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                If the purchase doesn't reflect, verify your <strong>Firestore Rules</strong> in the Firebase Console. The rate is fixed at <strong>$0.00008</strong> per validation.
+                If the purchase doesn't reflect, verify your <strong>Firestore Rules</strong> in the Firebase Console. The rate is fixed at <strong>$0.0008</strong> per validation.
               </p>
             </div>
           </div>
