@@ -25,19 +25,27 @@ export default function CreditsPage() {
   const PRICE_PER_CREDIT = 0.05; 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
+  // Debug Logging
+  console.log("CreditsPage Render:", { isMounted, authLoading, hasUser: !!user });
+
   useEffect(() => {
+    console.log("CreditsPage: Component Mounted");
     setIsMounted(true);
   }, []);
 
-  // Use a separate effect for the redirect to prevent hydration loops
   useEffect(() => {
-    if (isMounted && !authLoading && !user) {
-      router.replace("/login");
+    if (isMounted) {
+      console.log("CreditsPage Auth State Update:", { authLoading, hasUser: !!user });
+      if (!authLoading && !user) {
+        console.warn("CreditsPage: No user found, redirecting to login...");
+        router.replace("/login");
+      }
     }
   }, [user, authLoading, isMounted, router]);
 
   const handlePurchase = async () => {
     if (!user) {
+      console.error("Purchase attempt without user context");
       toast({
         variant: "destructive",
         title: "Authentication Error",
@@ -56,8 +64,8 @@ export default function CreditsPage() {
     }
     
     setIsPurchasing(true);
+    console.log("Initiating purchase for:", creditAmount, "credits");
     try {
-      // Simulate payment processing
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       const userRef = doc(db, "users", user.uid);
@@ -65,6 +73,7 @@ export default function CreditsPage() {
         credits: increment(creditAmount)
       });
 
+      console.log("Purchase successful!");
       toast({
         title: "Transaction Complete!",
         description: `${creditAmount} credits have been added to your wallet successfully.`,
@@ -72,7 +81,7 @@ export default function CreditsPage() {
       
       router.push("/dashboard");
     } catch (error) {
-      console.error("Purchase error:", error);
+      console.error("Purchase process failed:", error);
       toast({
         variant: "destructive",
         title: "Payment Failed",
@@ -83,8 +92,8 @@ export default function CreditsPage() {
     }
   };
 
-  // If not mounted or still checking auth, show a loader
   if (!isMounted || authLoading) {
+    console.log("CreditsPage: Showing Loading Screen...");
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-6">
@@ -95,15 +104,19 @@ export default function CreditsPage() {
           <div className="text-center space-y-2">
             <p className="text-xl font-black italic tracking-tighter uppercase animate-pulse">Initializing Checkout</p>
             <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">Securing Connection...</p>
+            <p className="text-[10px] text-muted-foreground opacity-50">Auth Loading: {authLoading ? 'Yes' : 'No'}</p>
           </div>
         </div>
       </div>
     );
   }
 
-  // If auth finished and no user, the redirect effect will handle it. 
-  // We return null to avoid flashing content.
-  if (!user) return null;
+  if (!user) {
+    console.log("CreditsPage: User is null, waiting for redirect");
+    return null;
+  }
+
+  console.log("CreditsPage: Rendering Main UI");
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-12">

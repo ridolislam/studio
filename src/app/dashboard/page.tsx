@@ -30,22 +30,29 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setIsMounted(true);
+    console.log("Dashboard: Component Mounted");
   }, []);
 
   const userProfileRef = user ? doc(db, "users", user.uid) : null;
   const { data: profile, loading: profileLoading } = useDoc(userProfileRef);
 
   const handleLogout = async () => {
+    console.log("Dashboard: Logging out...");
     await signOut(auth);
     router.push("/login");
   };
 
-  // Immediate redirect if not loading and no user
   useEffect(() => {
     if (isMounted && !userLoading && !user) {
+      console.warn("Dashboard: Unauthorized, redirecting to login");
       router.push("/login");
     }
   }, [user, userLoading, isMounted, router]);
+
+  const navigateToCredits = () => {
+    console.log("Dashboard: Navigating to /credits");
+    router.push("/credits");
+  };
 
   if (!isMounted || userLoading) {
     return (
@@ -60,7 +67,6 @@ export default function DashboardPage() {
   return (
     <main className="container mx-auto p-4 md:p-8 space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        {/* Brand Logo */}
         <div className="flex items-center gap-3">
           <Link href="/" className="relative group cursor-pointer">
             <div className="absolute -inset-1 bg-gradient-to-r from-primary to-accent rounded-xl blur opacity-25"></div>
@@ -74,9 +80,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* User Info & Wallet */}
         <div className="flex items-center gap-4">
-          {/* Wallet Section */}
           <div className="flex items-center bg-card border border-primary/20 rounded-2xl px-4 py-2 shadow-inner group transition-all hover:border-primary/40">
             <div className="flex flex-col mr-4">
               <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest leading-tight">Wallet Balance</span>
@@ -84,17 +88,15 @@ export default function DashboardPage() {
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
             </div>
-            <Link href="/credits">
-              <Button 
-                size="icon" 
-                className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90 shadow-lg active:scale-95 transition-all"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-            </Link>
+            <Button 
+              size="icon" 
+              onClick={navigateToCredits}
+              className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90 shadow-lg active:scale-95 transition-all"
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
           </div>
 
-          {/* User Profile Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-12 w-12 rounded-2xl border border-white/10 p-0 overflow-hidden hover:border-primary/50 transition-all focus:ring-0">
@@ -114,11 +116,9 @@ export default function DashboardPage() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/5" />
-              <DropdownMenuItem asChild>
-                <Link href="/credits" className="flex items-center w-full py-2.5 px-3 rounded-xl focus:bg-primary/10 cursor-pointer group">
-                  <Plus className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
-                  <span className="text-primary font-bold">Add Credits</span>
-                </Link>
+              <DropdownMenuItem onClick={navigateToCredits} className="flex items-center w-full py-2.5 px-3 rounded-xl focus:bg-primary/10 cursor-pointer group">
+                <Plus className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+                <span className="text-primary font-bold">Add Credits</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/5" />
               <DropdownMenuItem 
