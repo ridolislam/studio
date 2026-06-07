@@ -81,7 +81,7 @@ export default function SignupPage() {
       let message = error.message;
       
       if (error.code === 'auth/api-key-not-valid') {
-        message = "Firebase API Key is missing or invalid. Please configure src/firebase/config.ts with your actual project keys.";
+        message = "Firebase API Key is invalid. Please update src/firebase/config.ts with your actual API key from Firebase Console.";
       }
       
       setAuthError(message);
@@ -146,7 +146,7 @@ export default function SignupPage() {
             {authError && (
               <Alert variant="destructive" className="bg-destructive/10 border-destructive/20 text-destructive animate-in fade-in slide-in-from-top-1">
                 <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Configuration Error</AlertTitle>
+                <AlertTitle>Configuration Required</AlertTitle>
                 <AlertDescription className="text-xs">
                   {authError}
                 </AlertDescription>
