@@ -2,12 +2,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard, AlertCircle } from "lucide-react";
+import { Zap, Check, ArrowLeft, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useUser, useFirestore, useAuth } from "@/firebase";
-import { doc, updateDoc, increment, getDoc } from "firebase/firestore";
+import { doc, updateDoc, increment } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
@@ -165,7 +165,7 @@ export default function CreditsPage() {
                   Important
                 </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Firestore Database > Rules).
+                  Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Firestore Database &gt; Rules).
                 </p>
               </div>
               <ul className="space-y-4">
