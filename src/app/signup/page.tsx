@@ -1,15 +1,102 @@
 
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, Github, Chrome } from "lucide-react";
+import { Zap, Github, Chrome, Loader2 } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import { useAuth, useFirestore } from "@/firebase";
+import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/hooks/use-toast";
 
 export default function SignupPage() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const auth = useAuth();
+  const db = useFirestore();
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password || !name) {
+      toast({
+        variant: "destructive",
+        title: "Missing fields",
+        description: "Please fill in all fields.",
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      await updateProfile(user, { displayName: name });
+
+      // Create User Profile in Firestore
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        email: user.email,
+        displayName: name,
+        credits: 10, // Initial free credits
+        totalRequests: 0,
+        createdAt: serverTimestamp(),
+      });
+
+      toast({
+        title: "Account created!",
+        description: "Welcome to numcheckr.",
+      });
+      
+      router.push("/dashboard");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Sign up failed",
+        description: error.message || "Something went wrong.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      // Check if profile exists, if not create it
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        credits: 10,
+        totalRequests: 0,
+        createdAt: serverTimestamp(),
+      }, { merge: true });
+
+      router.push("/dashboard");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Google sign in failed",
+        description: error.message,
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Navbar />
@@ -28,10 +115,10 @@ export default function SignupPage() {
           </CardHeader>
           <CardContent className="grid gap-6">
             <div className="grid grid-cols-2 gap-4">
-              <Button variant="outline" className="rounded-xl font-bold">
+              <Button variant="outline" className="rounded-xl font-bold" onClick={handleGoogleSignIn}>
                 <Chrome className="mr-2 h-4 w-4" /> Google
               </Button>
-              <Button variant="outline" className="rounded-xl font-bold">
+              <Button variant="outline" className="rounded-xl font-bold" disabled>
                 <Github className="mr-2 h-4 w-4" /> Github
               </Button>
             </div>
@@ -43,25 +130,51 @@ export default function SignupPage() {
                 <span className="bg-card px-2 text-muted-foreground font-bold">Or sign up with email</span>
               </div>
             </div>
-            <div className="grid gap-4">
+            <form onSubmit={handleSignup} className="grid gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="name">Full Name</Label>
-                <Input id="name" placeholder="John Doe" className="rounded-xl border-white/10" />
+                <Input 
+                  id="name" 
+                  placeholder="John Doe" 
+                  className="rounded-xl border-white/10"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={isLoading}
+                />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="m@example.com" className="rounded-xl border-white/10" />
+                <Input 
+                  id="email" 
+                  type="email" 
+                  placeholder="m@example.com" 
+                  className="rounded-xl border-white/10" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={isLoading}
+                />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="password">Password</Label>
-                <Input id="password" type="password" className="rounded-xl border-white/10" />
+                <Input 
+                  id="password" 
+                  type="password" 
+                  className="rounded-xl border-white/10" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                />
               </div>
-            </div>
+              <Button 
+                type="submit"
+                disabled={isLoading}
+                className="w-full h-12 mt-2 font-bold bg-primary hover:bg-primary/90 rounded-xl shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-0.5 active:shadow-none"
+              >
+                {isLoading ? <Loader2 className="animate-spin" /> : "Create Account"}
+              </Button>
+            </form>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
-            <Button className="w-full h-12 font-bold bg-primary hover:bg-primary/90 rounded-xl shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-0.5 active:shadow-none">
-              Create Account
-            </Button>
             <p className="text-sm text-center text-muted-foreground">
               Already have an account?{" "}
               <Link href="/login" className="text-primary font-bold hover:underline">
