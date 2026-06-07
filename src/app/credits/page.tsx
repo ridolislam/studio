@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard, DollarSign } from "lucide-react";
+import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,6 @@ import { useUser, useFirestore } from "@/firebase";
 import { doc, updateDoc, increment } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 export default function CreditsPage() {
   const { user, loading: authLoading } = useUser();
@@ -27,11 +26,16 @@ export default function CreditsPage() {
 
   useEffect(() => {
     setIsMounted(true);
+    console.log("CreditsPage: Component Mounted");
   }, []);
 
   useEffect(() => {
-    if (isMounted && !authLoading && !user) {
-      router.replace("/login");
+    if (isMounted) {
+      console.log("CreditsPage: Auth State ->", { authLoading, hasUser: !!user });
+      if (!authLoading && !user) {
+        console.log("CreditsPage: No user session, redirecting to /login");
+        router.replace("/login");
+      }
     }
   }, [user, authLoading, isMounted, router]);
 
@@ -70,6 +74,7 @@ export default function CreditsPage() {
       
       router.push("/dashboard");
     } catch (error) {
+      console.error("CreditsPage: Purchase Error", error);
       toast({
         variant: "destructive",
         title: "Payment Failed",
@@ -80,7 +85,14 @@ export default function CreditsPage() {
     }
   };
 
-  if (!isMounted) return null;
+  const handleGoBack = () => {
+    console.log("CreditsPage: Returning to dashboard");
+    router.push("/dashboard");
+  };
+
+  if (!isMounted) {
+    return null;
+  }
 
   if (authLoading) {
     return (
@@ -93,18 +105,28 @@ export default function CreditsPage() {
     );
   }
 
-  if (!user) return null;
+  // If loading is done and there's still no user, the useEffect will handle the redirect.
+  // We return a simple loader instead of null to prevent an empty screen while redirecting.
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-12">
       <div className="container mx-auto max-w-5xl space-y-10">
         <div className="flex items-center justify-between">
-          <Link href="/dashboard">
-            <Button variant="ghost" className="group rounded-2xl border border-white/5 hover:bg-white/5">
-              <ArrowLeft className="mr-2 h-4 w-4 group-hover:-translate-x-1 transition-transform" />
-              <span className="font-bold">Back to Dashboard</span>
-            </Button>
-          </Link>
+          <Button 
+            variant="ghost" 
+            className="group rounded-2xl border border-white/5 hover:bg-white/5"
+            onClick={handleGoBack}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4 group-hover:-translate-x-1 transition-transform" />
+            <span className="font-bold">Back to Dashboard</span>
+          </Button>
           <div className="flex items-center gap-3">
             <div className="bg-primary/10 p-2 rounded-xl">
               <Zap className="h-6 w-6 text-primary" />

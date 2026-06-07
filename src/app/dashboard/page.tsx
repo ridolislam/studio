@@ -40,6 +40,11 @@ export default function DashboardPage() {
     router.push("/login");
   };
 
+  const navigateToCredits = () => {
+    console.log("Dashboard: Initiating navigation to /credits via router.push");
+    router.push("/credits");
+  };
+
   useEffect(() => {
     if (isMounted && !userLoading && !user) {
       router.push("/login");
@@ -80,14 +85,13 @@ export default function DashboardPage() {
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
             </div>
-            <Link href="/credits">
-              <Button 
-                size="icon" 
-                className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90 shadow-lg active:scale-95 transition-all"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-            </Link>
+            <Button 
+              onClick={navigateToCredits}
+              size="icon" 
+              className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90 shadow-lg active:scale-95 transition-all"
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
           </div>
 
           <DropdownMenu>
@@ -109,11 +113,12 @@ export default function DashboardPage() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/5" />
-              <DropdownMenuItem asChild>
-                <Link href="/credits" className="flex items-center w-full py-2.5 px-3 rounded-xl focus:bg-primary/10 cursor-pointer group">
-                  <Plus className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
-                  <span className="text-primary font-bold">Add Credits</span>
-                </Link>
+              <DropdownMenuItem 
+                onClick={navigateToCredits}
+                className="flex items-center w-full py-2.5 px-3 rounded-xl focus:bg-primary/10 cursor-pointer group"
+              >
+                <Plus className="mr-2 h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+                <span className="text-primary font-bold">Add Credits</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/5" />
               <DropdownMenuItem 
