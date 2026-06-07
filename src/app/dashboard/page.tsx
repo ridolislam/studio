@@ -40,7 +40,6 @@ export default function DashboardPage() {
   };
 
   const navigateToCredits = () => {
-    console.log("Navigating to credits...");
     router.push("/credits");
   };
 

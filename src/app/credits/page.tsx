@@ -21,18 +21,12 @@ export default function CreditsPage() {
   const [creditAmount, setCreditAmount] = useState<number>(500);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const [initTimeout, setInitTimeout] = useState(false);
 
   const PRICE_PER_CREDIT = 0.05; 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
   useEffect(() => {
     setIsMounted(true);
-    // যদি ২ সেকেন্ডের মধ্যে ডাটা না আসে, লোডিং স্ক্রিন সরিয়ে দেব
-    const timer = setTimeout(() => {
-      setInitTimeout(true);
-    }, 2000);
-    return () => clearTimeout(timer);
   }, []);
 
   const handlePurchase = async () => {
@@ -68,7 +62,7 @@ export default function CreditsPage() {
       toast({ 
         variant: "destructive", 
         title: "Permission Denied", 
-        description: "Please update Firestore Rules in the Firebase Console (Cloud Firestore > Rules)." 
+        description: "Please update Firestore Rules in the Firebase Console (Firestore Database > Rules)." 
       });
     } finally {
       setIsPurchasing(false);
@@ -77,8 +71,7 @@ export default function CreditsPage() {
 
   if (!isMounted) return null;
 
-  // যদি ইউজার লোড হচ্ছে কিন্তু টাইমআউট হয়ে গেছে, তবে আমরা পেজটি দেখাব
-  const isLoading = (hookLoading && !hookUser && !auth.currentUser) && !initTimeout;
+  const isLoading = hookLoading && !hookUser && !auth.currentUser;
 
   if (isLoading) {
     return (
@@ -160,7 +153,7 @@ export default function CreditsPage() {
                   Important
                 </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Cloud Firestore {'>'} Rules).
+                  Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Firestore Database {'>'} Rules).
                 </p>
               </div>
               <ul className="space-y-4">
