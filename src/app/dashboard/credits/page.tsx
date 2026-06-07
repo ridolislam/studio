@@ -1,45 +1,53 @@
 
 "use client";
 
-import { useState } from "react";
-import { Zap, Check, ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { useUser, useFirestore } from "@/firebase";
 import { doc, updateDoc, increment } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
-const PACKAGES = [
-  { id: "starter", name: "Starter", credits: 100, price: 5, popular: false },
-  { id: "pro", name: "Pro Pack", credits: 1000, price: 40, popular: true },
-  { id: "enterprise", name: "Enterprise", credits: 5000, price: 150, popular: false },
-];
-
 export default function CreditsPage() {
   const { user } = useUser();
   const db = useFirestore();
   const { toast } = useToast();
   const router = useRouter();
-  const [isPurchasing, setIsPurchasing] = useState<string | null>(null);
+  
+  const [creditAmount, setCreditAmount] = useState<number>(500);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const PRICE_PER_CREDIT = 0.05; // $0.05 per credit
 
-  const handlePurchase = async (pkg: typeof PACKAGES[0]) => {
+  const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
+
+  const handlePurchase = async () => {
     if (!user) return;
+    if (creditAmount < 100) {
+      toast({
+        variant: "destructive",
+        title: "Minimum Purchase",
+        description: "Minimum 100 credits required to purchase.",
+      });
+      return;
+    }
     
-    setIsPurchasing(pkg.id);
+    setIsPurchasing(true);
     try {
-      // Simulate payment delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Simulate payment gateway delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, {
-        credits: increment(pkg.credits)
+        credits: increment(creditAmount)
       });
 
       toast({
         title: "Purchase Successful!",
-        description: `${pkg.credits} credits have been added to your wallet.`,
+        description: `${creditAmount} credits have been added to your wallet.`,
       });
       
       router.push("/dashboard");
@@ -50,13 +58,13 @@ export default function CreditsPage() {
         description: "Failed to process purchase. Please try again.",
       });
     } finally {
-      setIsPurchasing(null);
+      setIsPurchasing(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
-      <div className="container mx-auto max-w-5xl space-y-8">
+      <div className="container mx-auto max-w-4xl space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
           <Link href="/dashboard">
@@ -73,74 +81,106 @@ export default function CreditsPage() {
 
         <div className="text-center space-y-4">
           <h1 className="text-4xl md:text-6xl font-black italic text-3d tracking-tighter">Refuel Your Wallet</h1>
-          <p className="text-muted-foreground text-lg">Choose a credit pack to continue validating leads with AI precision.</p>
+          <p className="text-muted-foreground text-lg">Enter the amount of credits you need for your next validation session.</p>
         </div>
 
-        {/* Package Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-8">
-          {PACKAGES.map((pkg) => (
-            <Card 
-              key={pkg.id} 
-              className={`relative border-primary/20 bg-card shadow-2xl transition-all hover:-translate-y-2 overflow-hidden ${pkg.popular ? 'border-primary border-2 scale-105' : ''}`}
-            >
-              {pkg.popular && (
-                <div className="absolute top-0 right-0">
-                  <div className="bg-primary text-primary-foreground text-[10px] font-black uppercase px-3 py-1 rotate-45 translate-x-4 translate-y-2 shadow-lg">
-                    Most Popular
-                  </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
+          {/* Custom Input Card */}
+          <Card className="border-primary/20 bg-card shadow-2xl relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-accent to-primary"></div>
+            <CardHeader>
+              <CardTitle className="text-2xl font-black italic flex items-center gap-2">
+                Custom Credits
+                <Sparkles className="h-5 w-5 text-primary animate-pulse" />
+              </CardTitle>
+              <CardDescription>Type the amount you want to buy</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              <div className="space-y-4">
+                <label className="text-xs font-black uppercase tracking-widest text-muted-foreground">Number of Credits</label>
+                <div className="relative">
+                  <Input 
+                    type="number"
+                    value={creditAmount}
+                    onChange={(e) => setCreditAmount(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="h-16 text-3xl font-code font-black text-primary bg-muted/20 border-white/10 rounded-2xl pl-12 focus:ring-primary"
+                    placeholder="500"
+                  />
+                  <Zap className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-primary/50" />
                 </div>
-              )}
-              
-              <CardHeader>
-                <CardTitle className="text-2xl font-black italic flex items-center gap-2">
-                  {pkg.name}
-                  {pkg.popular && <Sparkles className="h-4 w-4 text-primary animate-pulse" />}
-                </CardTitle>
-                <CardDescription>Instant credit delivery</CardDescription>
-              </CardHeader>
-              
-              <CardContent className="space-y-6">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-5xl font-black italic text-primary">${pkg.price}</span>
-                  <span className="text-muted-foreground font-bold">One-time</span>
-                </div>
-                
-                <div className="bg-primary/5 rounded-xl p-4 border border-primary/10">
-                  <p className="text-sm font-bold text-primary uppercase tracking-widest">You Get</p>
-                  <p className="text-3xl font-code font-black italic">{pkg.credits} CREDITS</p>
-                </div>
+                <p className="text-[10px] text-muted-foreground font-bold">MINIMUM PURCHASE: 100 CREDITS</p>
+              </div>
 
-                <ul className="space-y-3">
-                  {["Instant delivery", "No expiry date", "Full API access", "Bulk support"].map((feat, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm font-medium">
-                      <Check className="h-4 w-4 text-green-500" />
-                      {feat}
+              <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10 space-y-2">
+                <p className="text-xs font-bold uppercase text-primary tracking-widest">Total Price</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-5xl font-black italic text-foreground">${totalPrice}</span>
+                  <span className="text-muted-foreground font-medium">USD</span>
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button 
+                onClick={handlePurchase}
+                disabled={isPurchasing || creditAmount < 100}
+                className="w-full h-14 text-xl font-black italic bg-primary hover:bg-primary/90 rounded-2xl shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-1 active:shadow-none transition-all group"
+              >
+                {isPurchasing ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <>
+                    <CreditCard className="mr-2 h-5 w-5 group-hover:rotate-12 transition-transform" /> 
+                    BUY {creditAmount} CREDITS NOW
+                  </>
+                )}
+              </Button>
+            </CardFooter>
+          </Card>
+
+          {/* Info Card */}
+          <Card className="border-white/5 bg-card/50 shadow-xl flex flex-col justify-center">
+            <CardContent className="space-y-8 p-8">
+              <div className="space-y-4">
+                <h3 className="text-xl font-black italic">Why Credits?</h3>
+                <ul className="space-y-4">
+                  {[
+                    "Pay as you go, no monthly subscription",
+                    "Credits never expire",
+                    "Global validation coverage included",
+                    "Unlimited data exports (XLSX/CSV)",
+                    "Real-time API access for large batches"
+                  ].map((feat, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <div className="mt-1 h-5 w-5 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
+                        <Check className="h-3 w-3 text-green-500" />
+                      </div>
+                      <span className="text-sm font-medium text-muted-foreground">{feat}</span>
                     </li>
                   ))}
                 </ul>
-              </CardContent>
+              </div>
 
-              <CardFooter>
-                <Button 
-                  disabled={isPurchasing !== null}
-                  onClick={() => handlePurchase(pkg)}
-                  className={`w-full h-12 font-bold text-lg rounded-xl shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-1 active:shadow-none transition-all ${pkg.popular ? 'bg-primary' : 'variant-outline'}`}
-                >
-                  {isPurchasing === pkg.id ? <Loader2 className="animate-spin" /> : "Purchase Now"}
-                </Button>
-              </CardFooter>
-            </Card>
-          ))}
+              <div className="pt-6 border-t border-white/5">
+                <div className="flex items-center gap-4 p-4 bg-muted/30 rounded-xl">
+                  <DollarSign className="h-8 w-8 text-primary" />
+                  <div>
+                    <p className="text-sm font-bold">Standard Rate</p>
+                    <p className="text-xs text-muted-foreground">$0.05 per verification credit</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Footer Info */}
-        <div className="text-center pt-12 text-muted-foreground text-sm flex flex-col items-center gap-2">
-          <p>Secure payment processing. Credits are added instantly to your account.</p>
-          <div className="flex gap-4 opacity-50 font-bold uppercase tracking-tighter text-[10px]">
-            <span>Verified SSL</span>
-            <span>PCI Compliant</span>
-            <span>24/7 Support</span>
+        {/* Payment Methods Info */}
+        <div className="text-center pt-8 opacity-50 space-y-4">
+          <div className="flex flex-wrap justify-center gap-6 grayscale">
+             <div className="flex items-center gap-1 font-black italic text-xl">VISA</div>
+             <div className="flex items-center gap-1 font-black italic text-xl">STRIPE</div>
+             <div className="flex items-center gap-1 font-black italic text-xl">PAYPAL</div>
           </div>
+          <p className="text-xs font-bold uppercase tracking-widest">Secure 256-bit encrypted transactions</p>
         </div>
       </div>
     </div>
