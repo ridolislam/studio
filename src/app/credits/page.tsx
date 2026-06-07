@@ -27,6 +27,7 @@ export default function CreditsPage() {
 
   useEffect(() => {
     setIsMounted(true);
+    console.log("CreditsPage Mounted");
   }, []);
 
   const handlePurchase = async () => {
@@ -61,8 +62,8 @@ export default function CreditsPage() {
       console.error("Purchase Error:", error);
       toast({ 
         variant: "destructive", 
-        title: "Permission Denied", 
-        description: "Please update Firestore Rules in the Firebase Console (Firestore Database > Rules)." 
+        title: "Database Error", 
+        description: "Firestore rules or connection error. Please check console." 
       });
     } finally {
       setIsPurchasing(false);
@@ -70,19 +71,6 @@ export default function CreditsPage() {
   };
 
   if (!isMounted) return null;
-
-  const isLoading = hookLoading && !hookUser && !auth.currentUser;
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-xs font-bold uppercase tracking-widest animate-pulse">Initializing Checkout...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-12">
@@ -105,6 +93,13 @@ export default function CreditsPage() {
         <div className="text-center space-y-4">
           <h1 className="text-5xl md:text-7xl font-black italic text-3d tracking-tighter uppercase">Add Credits</h1>
           <p className="text-muted-foreground font-medium">Power up your lead validation engine.</p>
+          
+          {hookLoading && !hookUser && (
+            <div className="flex items-center justify-center gap-2 text-primary animate-pulse">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-xs font-bold uppercase">Verifying Authentication...</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
@@ -137,7 +132,7 @@ export default function CreditsPage() {
             <CardFooter className="pb-10 px-8">
               <Button 
                 onClick={handlePurchase}
-                disabled={isPurchasing || creditAmount < 100}
+                disabled={isPurchasing || creditAmount < 100 || (!hookUser && !auth.currentUser)}
                 className="w-full h-16 text-2xl font-black italic bg-primary hover:bg-primary/90 rounded-3xl shadow-[0_6px_0_0_rgba(0,0,0,0.3)] active:translate-y-1 transition-all"
               >
                 {isPurchasing ? <Loader2 className="h-8 w-8 animate-spin" /> : "PURCHASE NOW"}
@@ -150,7 +145,7 @@ export default function CreditsPage() {
               <div className="space-y-4">
                 <h3 className="text-2xl font-black italic flex items-center gap-2">
                   <AlertCircle className="h-5 w-5 text-primary" />
-                  Important
+                  Guide
                 </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   Make sure you have updated your <strong>Firestore Rules</strong> in the Firebase Console (Firestore Database {'>'} Rules).

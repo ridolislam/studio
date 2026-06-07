@@ -36,11 +36,21 @@ export default function DashboardPage() {
 
   const handleLogout = async () => {
     await signOut(auth);
-    router.push("/login");
+    window.location.href = "/login";
   };
 
   const navigateToCredits = () => {
+    console.log("Navigating to credits...");
+    // নেক্সট রাউটার দিয়ে চেষ্টা করা হচ্ছে
     router.push("/credits");
+    
+    // ব্যাকআপ হিসেবে ২ সেকেন্ড পর যদি না যায় তবে সরাসরি উইন্ডো লোড করা হবে
+    setTimeout(() => {
+      if (window.location.pathname !== "/credits") {
+        console.log("Router push slow, using window.location");
+        window.location.href = "/credits";
+      }
+    }, 500);
   };
 
   useEffect(() => {
