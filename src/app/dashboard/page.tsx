@@ -26,7 +26,7 @@ export default function DashboardPage() {
   const auth = useAuth();
   const router = useRouter();
 
-  // Fetch live user profile data (credits, etc.)
+  // Fetch live user profile data
   const userProfileRef = user ? doc(db, "users", user.uid) : null;
   const { data: profile, loading: profileLoading } = useDoc(userProfileRef);
 
@@ -54,8 +54,8 @@ export default function DashboardPage() {
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
           <Link href="/" className="relative group cursor-pointer">
-            <div className="absolute -inset-1 bg-gradient-to-r from-primary to-accent rounded-xl blur opacity-25 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
-            <div className="relative bg-card p-3 rounded-xl border border-primary/20 shadow-2xl transform transition hover:scale-110 duration-500">
+            <div className="absolute -inset-1 bg-gradient-to-r from-primary to-accent rounded-xl blur opacity-25"></div>
+            <div className="relative bg-card p-3 rounded-xl border border-primary/20 shadow-2xl">
               <Zap className="h-8 w-8 text-primary" />
             </div>
           </Link>
@@ -68,21 +68,20 @@ export default function DashboardPage() {
         {/* User Info & Wallet */}
         <div className="flex items-center gap-4">
           {/* Wallet Section */}
-          <div className="flex items-center bg-card border border-primary/20 rounded-2xl px-4 py-2 shadow-inner group transition-all hover:border-primary/50">
+          <div className="flex items-center bg-card border border-primary/20 rounded-2xl px-4 py-2 shadow-inner group">
             <div className="flex flex-col mr-4">
               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Wallet Credits</span>
               <span className="text-xl font-code font-black text-primary italic">
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
             </div>
-            <Link href="/dashboard/credits">
-              <Button 
-                size="icon" 
-                className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg transform transition active:scale-95"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-            </Link>
+            <Button 
+              size="icon" 
+              className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg"
+              onClick={() => router.push("/dashboard/credits")}
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
           </div>
 
           {/* User Profile Dropdown */}
@@ -105,18 +104,10 @@ export default function DashboardPage() {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/10" />
-              <DropdownMenuItem className="focus:bg-primary/10 cursor-pointer">
-                <User className="mr-2 h-4 w-4" />
-                <span>Account Details</span>
+              <DropdownMenuItem className="focus:bg-primary/10 cursor-pointer" onClick={() => router.push("/dashboard/credits")}>
+                <Plus className="mr-2 h-4 w-4 text-primary" />
+                <span className="text-primary font-bold">Add Credits</span>
               </DropdownMenuItem>
-              <Link href="/dashboard/credits">
-                <DropdownMenuItem 
-                  className="focus:bg-primary/10 cursor-pointer text-primary font-bold"
-                >
-                  <Wallet className="mr-2 h-4 w-4" />
-                  <span>Add Credits</span>
-                </DropdownMenuItem>
-              </Link>
               <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem className="text-destructive focus:bg-destructive/10 cursor-pointer" onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
