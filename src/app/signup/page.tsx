@@ -28,43 +28,58 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (!email || !password || !name) {
       toast({
         variant: "destructive",
         title: "Missing fields",
-        description: "Please fill in all fields.",
+        description: "Please fill in all fields to create your account.",
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      toast({
+        variant: "destructive",
+        title: "Weak password",
+        description: "Password should be at least 6 characters long.",
       });
       return;
     }
 
     setIsLoading(true);
     try {
+      // 1. Create User
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
+      // 2. Update Auth Profile
       await updateProfile(user, { displayName: name });
 
-      // Create User Profile in Firestore
-      await setDoc(doc(db, "users", user.uid), {
+      // 3. Create User Profile in Firestore
+      // Using setDoc with merge: true to avoid overwriting existing data if any
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, {
         uid: user.uid,
         email: user.email,
         displayName: name,
-        credits: 10, // Initial free credits
+        credits: 10,
         totalRequests: 0,
         createdAt: serverTimestamp(),
-      });
+      }, { merge: true });
 
       toast({
-        title: "Account created!",
-        description: "Welcome to numcheckr.",
+        title: "Success!",
+        description: "Your account has been created. Welcome to numcheckr!",
       });
       
       router.push("/dashboard");
     } catch (error: any) {
+      console.error("Signup error:", error);
       toast({
         variant: "destructive",
         title: "Sign up failed",
-        description: error.message || "Something went wrong.",
+        description: error.message || "An unexpected error occurred. Please try again.",
       });
     } finally {
       setIsLoading(false);
@@ -73,12 +88,13 @@ export default function SignupPage() {
 
   const handleGoogleSignIn = async () => {
     const provider = new GoogleAuthProvider();
+    setIsLoading(true);
     try {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      // Check if profile exists, if not create it
-      await setDoc(doc(db, "users", user.uid), {
+      const userRef = doc(db, "users", user.uid);
+      await setDoc(userRef, {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
@@ -94,6 +110,8 @@ export default function SignupPage() {
         title: "Google sign in failed",
         description: error.message,
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -101,10 +119,10 @@ export default function SignupPage() {
     <div className="min-h-screen flex flex-col bg-background">
       <Navbar />
       <div className="flex-1 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md border-primary/20 bg-card shadow-2xl">
+        <Card className="w-full max-w-md border-primary/20 bg-card shadow-2xl transition-all hover:shadow-primary/5">
           <CardHeader className="space-y-1 text-center">
             <div className="flex justify-center mb-4">
-               <div className="bg-primary/10 p-3 rounded-2xl border border-primary/20">
+               <div className="bg-primary/10 p-3 rounded-2xl border border-primary/20 animate-pulse-violet">
                   <Zap className="h-8 w-8 text-primary" />
                </div>
             </div>
@@ -115,10 +133,15 @@ export default function SignupPage() {
           </CardHeader>
           <CardContent className="grid gap-6">
             <div className="grid grid-cols-2 gap-4">
-              <Button variant="outline" className="rounded-xl font-bold" onClick={handleGoogleSignIn}>
+              <Button 
+                variant="outline" 
+                className="rounded-xl font-bold transform transition-all active:scale-95 shadow-[0_4px_0_0_rgba(0,0,0,0.1)] active:shadow-none" 
+                onClick={handleGoogleSignIn}
+                disabled={isLoading}
+              >
                 <Chrome className="mr-2 h-4 w-4" /> Google
               </Button>
-              <Button variant="outline" className="rounded-xl font-bold" disabled>
+              <Button variant="outline" className="rounded-xl font-bold opacity-50 cursor-not-allowed" disabled>
                 <Github className="mr-2 h-4 w-4" /> Github
               </Button>
             </div>
@@ -136,7 +159,7 @@ export default function SignupPage() {
                 <Input 
                   id="name" 
                   placeholder="John Doe" 
-                  className="rounded-xl border-white/10"
+                  className="rounded-xl border-white/10 focus:border-primary/50"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   disabled={isLoading}
@@ -148,7 +171,7 @@ export default function SignupPage() {
                   id="email" 
                   type="email" 
                   placeholder="m@example.com" 
-                  className="rounded-xl border-white/10" 
+                  className="rounded-xl border-white/10 focus:border-primary/50" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isLoading}
@@ -159,7 +182,7 @@ export default function SignupPage() {
                 <Input 
                   id="password" 
                   type="password" 
-                  className="rounded-xl border-white/10" 
+                  className="rounded-xl border-white/10 focus:border-primary/50" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isLoading}
@@ -168,13 +191,13 @@ export default function SignupPage() {
               <Button 
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-12 mt-2 font-bold bg-primary hover:bg-primary/90 rounded-xl shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-0.5 active:shadow-none"
+                className="w-full h-12 mt-2 font-bold bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl shadow-[0_4px_0_0_rgba(0,0,0,0.2)] active:translate-y-1 active:shadow-none transition-all"
               >
                 {isLoading ? <Loader2 className="animate-spin" /> : "Create Account"}
               </Button>
             </form>
           </CardContent>
-          <CardFooter className="flex flex-col gap-4">
+          <CardFooter className="flex flex-col gap-4 border-t border-white/5 pt-6">
             <p className="text-sm text-center text-muted-foreground">
               Already have an account?{" "}
               <Link href="/login" className="text-primary font-bold hover:underline">
