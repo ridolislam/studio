@@ -75,11 +75,11 @@ export default function DashboardPage() {
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
             </div>
-            <Link href="/dashboard/credits">
-              <Button size="icon" className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg transform transition active:scale-95">
+            <Button asChild size="icon" className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg transform transition active:scale-95">
+              <Link href="/dashboard/credits">
                 <Plus className="h-5 w-5" />
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
 
           {/* User Profile Dropdown */}
@@ -107,11 +107,9 @@ export default function DashboardPage() {
                 <span>Account Details</span>
               </DropdownMenuItem>
               <DropdownMenuItem asChild className="focus:bg-primary/10 cursor-pointer text-primary font-bold">
-                <Link href="/dashboard/credits">
-                  <div className="flex items-center w-full h-full">
-                    <Wallet className="mr-2 h-4 w-4" />
-                    <span>Add Credits</span>
-                  </div>
+                <Link href="/dashboard/credits" className="flex items-center w-full">
+                  <Wallet className="mr-2 h-4 w-4" />
+                  <span>Add Credits</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/10" />

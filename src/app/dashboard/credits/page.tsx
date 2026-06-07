@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
 export default function CreditsPage() {
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const db = useFirestore();
   const { toast } = useToast();
   const router = useRouter();
@@ -38,7 +38,7 @@ export default function CreditsPage() {
     setIsPurchasing(true);
     try {
       // Simulate payment gateway delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
       const userRef = doc(db, "users", user.uid);
       await updateDoc(userRef, {
@@ -62,17 +62,25 @@ export default function CreditsPage() {
     }
   };
 
+  if (userLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="container mx-auto max-w-4xl space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <Link href="/dashboard">
-            <Button variant="ghost" className="group">
+          <Button asChild variant="ghost" className="group">
+            <Link href="/dashboard">
               <ArrowLeft className="mr-2 h-4 w-4 transition-transform group-hover:-translate-x-1" />
               Back to Dashboard
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <div className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-primary" />
             <span className="text-xl font-black italic">numcheckr</span>
