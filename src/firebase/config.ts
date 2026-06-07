@@ -1,10 +1,9 @@
 
 export const firebaseConfig = {
-  // TODO: Replace these placeholders with your actual Firebase project config from the Firebase Console
-  apiKey: "YOUR_ACTUAL_API_KEY",
+  apiKey: "AIzaSyBYTuDLF0BGsvPCsPij3FgGYi0AxofBUwI",
   authDomain: "studio-6946910268-4e947.firebaseapp.com",
   projectId: "studio-6946910268-4e947",
   storageBucket: "studio-6946910268-4e947.firebasestorage.app",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  messagingSenderId: "201008855577",
+  appId: "1:201008855577:web:2b6ddd89f3ac7349ae4888"
 };
