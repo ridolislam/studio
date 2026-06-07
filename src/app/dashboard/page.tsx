@@ -2,7 +2,7 @@
 "use client";
 
 import LeadPulseDashboard from "@/components/LeadPulseDashboard";
-import { Zap, Wallet, Plus, User, LogOut, Loader2 } from "lucide-react";
+import { Zap, Plus, LogOut, Loader2 } from "lucide-react";
 import { useUser, useFirestore, useDoc } from "@/firebase";
 import { doc } from "firebase/firestore";
 import { 
@@ -26,7 +26,6 @@ export default function DashboardPage() {
   const auth = useAuth();
   const router = useRouter();
 
-  // Fetch live user profile data
   const userProfileRef = user ? doc(db, "users", user.uid) : null;
   const { data: profile, loading: profileLoading } = useDoc(userProfileRef);
 
@@ -38,7 +37,7 @@ export default function DashboardPage() {
   if (userLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
       </div>
     );
   }
@@ -70,18 +69,19 @@ export default function DashboardPage() {
           {/* Wallet Section */}
           <div className="flex items-center bg-card border border-primary/20 rounded-2xl px-4 py-2 shadow-inner group">
             <div className="flex flex-col mr-4">
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Wallet Credits</span>
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Wallet Balance</span>
               <span className="text-xl font-code font-black text-primary italic">
                 {profileLoading ? "..." : (profile?.credits || 0)}
               </span>
             </div>
-            <Button 
-              size="icon" 
-              className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg"
-              onClick={() => router.push("/dashboard/credits")}
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
+            <Link href="/credits">
+              <Button 
+                size="icon" 
+                className="h-8 w-8 rounded-lg bg-primary hover:bg-primary/90 shadow-lg active:scale-90 transition-all"
+              >
+                <Plus className="h-5 w-5" />
+              </Button>
+            </Link>
           </div>
 
           {/* User Profile Dropdown */}
@@ -100,14 +100,16 @@ export default function DashboardPage() {
               <DropdownMenuLabel className="font-headline">
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-bold leading-none">{user.displayName}</p>
-                  <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+                  <p className="text-xs leading-none text-muted-foreground truncate">{user.email}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator className="bg-white/10" />
-              <DropdownMenuItem className="focus:bg-primary/10 cursor-pointer" onClick={() => router.push("/dashboard/credits")}>
-                <Plus className="mr-2 h-4 w-4 text-primary" />
-                <span className="text-primary font-bold">Add Credits</span>
-              </DropdownMenuItem>
+              <Link href="/credits">
+                <DropdownMenuItem className="focus:bg-primary/10 cursor-pointer">
+                  <Plus className="mr-2 h-4 w-4 text-primary" />
+                  <span className="text-primary font-bold">Add Credits</span>
+                </DropdownMenuItem>
+              </Link>
               <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem className="text-destructive focus:bg-destructive/10 cursor-pointer" onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
