@@ -1,12 +1,11 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Zap, Check, ArrowLeft, Loader2, Sparkles, CreditCard, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import Link from "next/link";
 import { useUser, useFirestore } from "@/firebase";
 import { doc, updateDoc, increment } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
@@ -23,6 +22,13 @@ export default function CreditsPage() {
   const PRICE_PER_CREDIT = 0.05; // $0.05 per credit
 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
+
+  // Redirect if not logged in
+  useEffect(() => {
+    if (!userLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, userLoading, router]);
 
   const handlePurchase = async () => {
     if (!user) return;
@@ -75,13 +81,11 @@ export default function CreditsPage() {
       <div className="container mx-auto max-w-4xl space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <Button asChild variant="ghost" className="group">
-            <Link href="/dashboard">
-              <ArrowLeft className="mr-2 h-4 w-4 transition-transform group-hover:-translate-x-1" />
-              Back to Dashboard
-            </Link>
+          <Button variant="ghost" className="group" onClick={() => router.push("/dashboard")}>
+            <ArrowLeft className="mr-2 h-4 w-4 transition-transform group-hover:-translate-x-1" />
+            Back to Dashboard
           </Button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push("/dashboard")}>
             <Zap className="h-5 w-5 text-primary" />
             <span className="text-xl font-black italic">numcheckr</span>
           </div>
