@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useUser, useFirestore, useAuth } from "@/firebase";
-import { doc, updateDoc, increment } from "firebase/firestore";
+import { doc, updateDoc, increment, getDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
@@ -21,74 +21,115 @@ export default function CreditsPage() {
   const [creditAmount, setCreditAmount] = useState<number>(500);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const [authResolved, setAuthResolved] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [initError, setInitError] = useState<string | null>(null);
 
   const PRICE_PER_CREDIT = 0.05; 
   const totalPrice = (creditAmount * PRICE_PER_CREDIT).toFixed(2);
 
-  // Initial Mounting and Auth Fallback
   useEffect(() => {
     setIsMounted(true);
-    
-    // Fallback: If hook is stuck in loading, check auth.currentUser directly
+    console.log("CreditsPage: Component Mounted");
+
+    // Force check after 3 seconds if still loading
     const timer = setTimeout(() => {
-      if (!authResolved) {
-        console.log("CreditsPage: Auth timeout fallback triggered");
-        if (auth.currentUser) {
-          setCurrentUser(auth.currentUser);
-          setAuthResolved(true);
-        } else {
-          // If still no user, redirect to login
-          router.replace("/login");
-        }
+      if (!currentUser && !hookUser && !auth.currentUser) {
+        console.warn("CreditsPage: Auth Timeout. No user found.");
+        setInitError("Auth timeout. Please ensure you are logged in.");
       }
-    }, 2000);
+    }, 5000);
 
     return () => clearTimeout(timer);
-  }, [auth, authResolved, router]);
+  }, [auth, hookUser, currentUser]);
 
-  // Sync state with hook
   useEffect(() => {
-    if (!hookLoading) {
+    if (hookUser) {
+      console.log("CreditsPage: User found from hook", hookUser.uid);
       setCurrentUser(hookUser);
-      setAuthResolved(true);
+    } else if (auth.currentUser) {
+      console.log("CreditsPage: User found from direct auth", auth.currentUser.uid);
+      setCurrentUser(auth.currentUser);
     }
-  }, [hookUser, hookLoading]);
+  }, [hookUser, auth.currentUser]);
 
   const handlePurchase = async () => {
     if (!currentUser) {
-      toast({ variant: "destructive", title: "Auth Error", description: "Login required." });
+      toast({ variant: "destructive", title: "Auth Error", description: "You must be logged in." });
       return;
     }
     
     setIsPurchasing(true);
     try {
+      console.log("CreditsPage: Starting purchase for user", currentUser.uid);
       const userRef = doc(db, "users", currentUser.uid);
+      
+      // Check if document exists first to avoid confusing errors
+      const docSnap = await getDoc(userRef);
+      if (!docSnap.exists()) {
+        console.error("CreditsPage: User document does not exist in Firestore.");
+        toast({ 
+          variant: "destructive", 
+          title: "Setup Error", 
+          description: "User profile not found in Firestore. Please sign up again." 
+        });
+        setIsPurchasing(false);
+        return;
+      }
+
       await updateDoc(userRef, {
         credits: increment(creditAmount)
       });
-      toast({ title: "Success!", description: "Credits added." });
+      
+      toast({ title: "Success!", description: `${creditAmount} credits added.` });
       router.push("/dashboard");
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Transaction failed." });
+    } catch (error: any) {
+      console.error("CreditsPage: Transaction Error", error);
+      toast({ 
+        variant: "destructive", 
+        title: "Transaction Failed", 
+        description: error.message || "Failed to update credits." 
+      });
     } finally {
       setIsPurchasing(false);
     }
   };
 
-  if (!isMounted || (!authResolved && hookLoading)) {
+  if (!isMounted) return null;
+
+  if (hookLoading && !currentUser && !initError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-xs font-bold animate-pulse uppercase tracking-widest">Initializing Wallet...</p>
+          <p className="text-xs font-bold animate-pulse uppercase tracking-widest">Checking Authentication...</p>
+          <p className="text-[10px] text-muted-foreground italic">If this takes too long, check Firebase Console Auth settings.</p>
         </div>
       </div>
     );
   }
 
-  if (!currentUser) return null;
+  if (initError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="max-w-md w-full border-destructive/20 bg-destructive/5">
+          <CardHeader>
+            <CardTitle className="text-destructive font-black">Auth Issue Detected</CardTitle>
+            <CardDescription>{initError}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">Please ensure:</p>
+            <ul className="text-xs space-y-2 mt-2 list-disc pl-4 text-muted-foreground">
+              <li>Firebase Auth (Email/Google) is enabled in Console.</li>
+              <li>You are actually logged in.</li>
+            </ul>
+          </CardContent>
+          <CardFooter>
+            <Button onClick={() => router.push("/login")} className="w-full">Go to Login</Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-12">
@@ -110,7 +151,7 @@ export default function CreditsPage() {
 
         <div className="text-center space-y-4">
           <h1 className="text-5xl md:text-7xl font-black italic text-3d tracking-tighter uppercase">Refill Wallet</h1>
-          <p className="text-muted-foreground font-medium">Add credits to your account instantly.</p>
+          <p className="text-muted-foreground font-medium">Add credits to your account by typing the amount below.</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
@@ -118,7 +159,7 @@ export default function CreditsPage() {
             <div className="absolute top-0 left-0 w-full h-1.5 bg-primary"></div>
             <CardHeader className="pt-8 px-8">
               <CardTitle className="text-3xl font-black italic flex items-center gap-2">
-                Amount
+                Type Amount
                 <Sparkles className="h-6 w-6 text-primary" />
               </CardTitle>
             </CardHeader>
@@ -129,6 +170,7 @@ export default function CreditsPage() {
                   value={creditAmount}
                   onChange={(e) => setCreditAmount(Math.max(0, parseInt(e.target.value) || 0))}
                   className="h-20 text-4xl font-code font-black text-primary bg-muted/20 border-white/10 rounded-3xl pl-16"
+                  placeholder="500"
                 />
               </div>
 
@@ -152,7 +194,10 @@ export default function CreditsPage() {
 
           <Card className="lg:col-span-2 border-white/5 bg-card/40 flex flex-col justify-center">
             <CardContent className="p-10 space-y-6">
-              <h3 className="text-2xl font-black italic">Benefits</h3>
+              <h3 className="text-2xl font-black italic">Helpful Tip</h3>
+              <p className="text-sm text-muted-foreground">
+                If the payment doesn't update, please ensure **Firestore Database** is enabled in your Firebase Console.
+              </p>
               <ul className="space-y-4">
                 {["No Expiration", "Bulk Processing", "AI Validation", "Premium Support"].map((feat, i) => (
                   <li key={i} className="flex items-center gap-4">
