@@ -6,14 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { useUser, useAuth } from "@/firebase";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { createPaymentRequest } from "@/app/actions/payments";
+import Logo from "@/components/Logo";
+
+const API_BASE = 'https://numcheckr.onrender.com';
 
 export default function CreditsPage() {
-  const { user: hookUser, loading: hookLoading } = useUser();
-  const auth = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   
@@ -30,33 +29,51 @@ export default function CreditsPage() {
   }, []);
 
   const handlePurchase = async () => {
-    const currentUser = hookUser || auth.currentUser;
-    
-    if (!currentUser) {
-      toast({ variant: "destructive", title: "Authentication Required", description: "Please login to purchase credits." });
+    // 1. Get user from localStorage
+    const userData = localStorage.getItem('user');
+    if (!userData) {
+      toast({ 
+        variant: "destructive", 
+        title: "Authentication Required", 
+        description: "দয়া করে প্রথমে লগইন করুন!" 
+      });
+      router.push("/login");
       return;
     }
+    const user = JSON.parse(userData);
 
+    // 2. Validation (Minimum 100 credits)
     if (creditAmount < 100) {
-      toast({ variant: "destructive", title: "Minimum Requirement", description: "Minimum purchase is 100 credits." });
+      toast({ 
+        variant: "destructive", 
+        title: "Minimum Requirement", 
+        description: "কমপক্ষে ১০০ ক্রেডিট কিনতে হবে!" 
+      });
       return;
     }
     
     setIsPurchasing(true);
     try {
-      const result = await createPaymentRequest({
-        amount: parseFloat(totalPrice),
-        currency: "USD",
-        orderId: `order_${Date.now()}`,
-        uid: currentUser.uid,
-        creditsToBuy: creditAmount
+      // 3. Call Render Backend
+      const response = await fetch(`${API_BASE}/api/user/create-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: user.email,
+          credits: creditAmount
+        }),
       });
 
-      if (result.invoice_url) {
-        toast({ title: "Redirecting...", description: "Opening secure No-KYC payment gateway." });
-        window.location.href = result.invoice_url;
+      const data = await response.json();
+
+      // 4. Handle Redirect
+      if (data.success && data.invoice_url) {
+        toast({ title: "Redirecting...", description: "Opening secure crypto payment gateway." });
+        window.location.href = data.invoice_url;
       } else {
-        throw new Error("Failed to generate payment invoice");
+        throw new Error(data.message || "Failed to generate payment invoice");
       }
       
     } catch (error: any) {
@@ -64,7 +81,7 @@ export default function CreditsPage() {
       toast({ 
         variant: "destructive", 
         title: "Payment Failed", 
-        description: "Make sure CRYPTOMUS_API_KEY & MERCHANT_ID are set in .env" 
+        description: error.message || "সার্ভারে সমস্যা হচ্ছে, পরে চেষ্টা করুন!" 
       });
     } finally {
       setIsPurchasing(false);
@@ -86,7 +103,7 @@ export default function CreditsPage() {
             <span className="font-bold">Dashboard</span>
           </Button>
           <div className="flex items-center gap-2">
-            <Zap className="h-6 w-6 text-primary" />
+            <Logo size={32} />
             <span className="text-2xl font-black italic tracking-tighter text-3d">numcheckr</span>
           </div>
         </div>
@@ -174,7 +191,7 @@ export default function CreditsPage() {
           <div className="space-y-6">
             <Card className="border-white/5 bg-card/60 shadow-xl backdrop-blur-md">
               <CardHeader>
-                <CardTitle className="text-xl font-black italic">Why Cryptomus?</CardTitle>
+                <CardTitle className="text-xl font-black italic">Anonymous Crypto</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
                 {[
@@ -183,7 +200,7 @@ export default function CreditsPage() {
                   "Ultra Low Fees",
                   "Support for USDT, BTC, LTC, etc.",
                   "Instant Activation",
-                  "Secure & Anonymous"
+                  "Secure & Private"
                 ].map((feat, i) => (
                   <div key={i} className="flex items-center gap-3">
                     <div className="h-6 w-6 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
@@ -196,20 +213,16 @@ export default function CreditsPage() {
             </Card>
 
             <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10 space-y-4">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Need help?</h4>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">নির্দেশনা</h4>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 ১. আপনার প্রয়োজনীয় ক্রেডিট সিলেক্ট করুন।<br/>
                 ২. <strong>PAY WITH CRYPTO</strong> এ ক্লিক করুন।<br/>
                 ৩. কোনো রেজিস্টেশন বা আইডি কার্ড ছাড়াই আপনার পছন্দের কয়েন দিয়ে পেমেন্ট করুন।<br/>
                 ৪. পেমেন্ট শেষে অটোমেটিক ড্যাশবোর্ডে ক্রেডিট যোগ হবে।
               </p>
-              <a 
-                href="https://cryptomus.com" 
-                target="_blank" 
-                className="text-[9px] font-bold text-primary flex items-center gap-1 hover:underline"
-              >
-                Powered by Cryptomus (No-KYC) <ExternalLink className="h-2 w-2" />
-              </a>
+              <div className="text-[9px] font-bold text-primary flex items-center gap-1">
+                Secure Payment Gateway <ExternalLink className="h-2 w-2" />
+              </div>
             </div>
           </div>
         </div>
