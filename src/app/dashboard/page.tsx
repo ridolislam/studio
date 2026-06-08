@@ -1,10 +1,12 @@
 
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import LeadPulseDashboard from "@/components/LeadPulseDashboard";
-import { Zap, Plus, LogOut, Loader2 } from "lucide-react";
-import { useUser, useFirestore, useDoc, useAuth } from "@/firebase";
-import { doc } from "firebase/firestore";
+import { Zap, LogOut, Plus, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import Navbar from "@/components/Navbar";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -13,132 +15,67 @@ import {
   DropdownMenuSeparator, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { useRouter } from "next/navigation";
-import { signOut } from "firebase/auth";
-import Link from "next/link";
-import { useEffect, useState } from "react";
 
 export default function DashboardPage() {
-  const { user, loading: userLoading } = useUser();
-  const db = useFirestore();
-  const auth = useAuth();
-  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     setIsMounted(true);
-  }, []);
-
-  const userProfileRef = user ? doc(db, "users", user.uid) : null;
-  const { data: profile, loading: profileLoading } = useDoc(userProfileRef);
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    window.location.href = "/login";
-  };
-
-  const navigateToCredits = () => {
-    console.log("Navigating to credits...");
-    // নেক্সট রাউটার দিয়ে চেষ্টা করা হচ্ছে
-    router.push("/credits");
-    
-    // ব্যাকআপ হিসেবে ২ সেকেন্ড পর যদি না যায় তবে সরাসরি উইন্ডো লোড করা হবে
-    setTimeout(() => {
-      if (window.location.pathname !== "/credits") {
-        console.log("Router push slow, using window.location");
-        window.location.href = "/credits";
-      }
-    }, 500);
-  };
-
-  useEffect(() => {
-    if (isMounted && !userLoading && !user) {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) {
       router.push("/login");
+    } else {
+      setUser(JSON.parse(userStr));
     }
-  }, [user, userLoading, isMounted, router]);
+  }, [router]);
 
-  if (!isMounted || userLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-10 w-10 animate-spin text-primary" />
-      </div>
-    );
-  }
+  const handleLogout = () => {
+    localStorage.removeItem('user');
+    router.push("/login");
+  };
 
-  if (!user) return null;
+  if (!isMounted || !user) return null;
 
   return (
-    <main className="container mx-auto p-4 md:p-8 space-y-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="relative group cursor-pointer">
+    <main className="min-h-screen bg-background p-4 md:p-8 space-y-8">
+      <div className="container mx-auto">
+        <div className="flex items-center justify-between mb-12">
+          <div className="flex items-center gap-3">
             <Zap className="h-8 w-8 text-primary" />
-          </Link>
-          <div>
-            <h1 className="text-4xl font-black tracking-tighter text-primary italic leading-none">numcheckr</h1>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-[0.2em] font-bold mt-1">Validator Pro</p>
+            <h1 className="text-3xl font-black italic tracking-tighter text-primary">numcheckr</h1>
           </div>
-        </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center bg-card border border-primary/20 rounded-2xl px-4 py-2">
-            <div className="flex flex-col mr-4">
-              <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest leading-tight">Credits</span>
-              <span className="text-xl font-code font-black text-primary italic leading-none">
-                {profileLoading ? "..." : (profile?.credits || 0)}
-              </span>
-            </div>
-            <Button 
-              onClick={navigateToCredits}
-              size="icon" 
-              className="h-9 w-9 rounded-xl bg-primary hover:bg-primary/90"
-            >
-              <Plus className="h-5 w-5" />
+          <div className="flex items-center gap-4">
+            <Button onClick={() => router.push("/credits")} className="rounded-xl font-bold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20">
+              <Plus className="mr-2 h-4 w-4" /> Add Credits
             </Button>
-          </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-12 w-12 rounded-2xl border border-white/10 p-0 overflow-hidden">
-                <Avatar className="h-full w-full rounded-none">
-                  <AvatarImage src={user.photoURL || ""} alt={user.displayName || "User"} />
-                  <AvatarFallback className="bg-primary/10 text-primary font-bold">
-                    {user.displayName?.charAt(0) || "U"}
-                  </AvatarFallback>
-                </Avatar>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-64 mt-2 border-primary/20 bg-card p-2" align="end">
-              <DropdownMenuLabel className="pb-3">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-black leading-none">{user.displayName}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator className="bg-white/5" />
-              <DropdownMenuItem 
-                onClick={navigateToCredits}
-                className="flex items-center w-full py-2.5 px-3 rounded-xl cursor-pointer group"
-              >
-                <Plus className="mr-2 h-4 w-4 text-primary" />
-                <span className="text-primary font-bold">Add Credits</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-white/5" />
-              <DropdownMenuItem 
-                className="text-destructive cursor-pointer py-2.5 px-3 rounded-xl flex items-center" 
-                onClick={handleLogout}
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                <span className="font-bold">Log Out</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="h-12 w-12 rounded-2xl border border-white/10 p-0">
+                   <div className="bg-primary/10 h-full w-full flex items-center justify-center text-primary font-bold">
+                    {user.name?.charAt(0) || <User className="h-6 w-6" />}
+                   </div>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56 mt-2">
+                <DropdownMenuLabel>
+                  <p className="font-bold">{user.name || "User"}</p>
+                  <p className="text-xs text-muted-foreground">{user.email}</p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-destructive font-bold">
+                  <LogOut className="mr-2 h-4 w-4" /> Log Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
+        
+        <LeadPulseDashboard />
       </div>
-      
-      <LeadPulseDashboard />
     </main>
   );
 }
