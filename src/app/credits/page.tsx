@@ -157,7 +157,7 @@ export default function CreditsPage() {
               <Button 
                 onClick={handlePurchase}
                 disabled={isPurchasing || creditAmount < 100}
-                className="w-full h-20 text-3xl font-black italic bg-primary hover:bg-primary/90 text-primary-foreground rounded-2xl shadow-[0_8px_0_0_rgba(0,0,0,0.3)] active:translate-y-2 active:shadow-none transition-all flex items-center justify-center gap-3 animate-pulse-zoom"
+                className="w-full h-20 text-xl md:text-2xl font-black italic bg-gradient-to-r from-white to-primary text-slate-900 rounded-2xl shadow-[0_8px_0_0_rgba(0,0,0,0.3)] active:translate-y-2 active:shadow-none transition-all flex items-center justify-center gap-3 animate-pulse-zoom"
               >
                 {isPurchasing ? (
                   <Loader2 className="h-10 w-10 animate-spin" />
