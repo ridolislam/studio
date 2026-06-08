@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, Github, Chrome, Loader2, AlertCircle } from "lucide-react";
+import { Github, Chrome, Loader2, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { useAuth, useFirestore } from "@/firebase";
@@ -15,6 +15,7 @@ import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import Logo from "@/components/Logo";
 
 export default function SignupPage() {
   const [name, setName] = useState("");
@@ -141,8 +142,8 @@ export default function SignupPage() {
         <Card className="w-full max-w-md border-primary/20 bg-card shadow-2xl transition-all hover:shadow-primary/5">
           <CardHeader className="space-y-1 text-center">
             <div className="flex justify-center mb-4">
-               <div className="bg-primary/10 p-3 rounded-2xl border border-primary/20 animate-pulse-violet">
-                  <Zap className="h-8 w-8 text-primary" />
+               <div className="bg-primary/5 p-4 rounded-3xl border border-primary/20">
+                  <Logo size={60} />
                </div>
             </div>
             <CardTitle className="text-3xl font-black italic">Create Account</CardTitle>

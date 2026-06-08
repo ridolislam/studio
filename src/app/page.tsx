@@ -1,8 +1,9 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Zap, CheckCircle2, Shield, Globe, ArrowRight } from "lucide-react";
+import { CheckCircle2, Shield, Globe, ArrowRight } from "lucide-react";
 import Navbar from "@/components/Navbar";
+import Logo from "@/components/Logo";
 
 export default function LandingPage() {
   return (
@@ -16,13 +17,16 @@ export default function LandingPage() {
         
         <div className="relative z-10 space-y-8 max-w-4xl">
           <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 px-4 py-2 rounded-full mb-4 animate-bounce">
-            <Zap className="h-4 w-4 text-primary" />
+            <Logo size={24} />
             <span className="text-xs font-bold uppercase tracking-widest text-primary">Next Gen Validation</span>
           </div>
           
-          <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-3d italic">
-            num<span className="text-primary">checkr</span>
-          </h1>
+          <div className="flex flex-col items-center gap-4">
+             <Logo size={120} className="mb-4 drop-shadow-[0_10px_30px_rgba(113,85,255,0.4)]" />
+             <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-3d italic">
+              num<span className="text-primary">checkr</span>
+             </h1>
+          </div>
           
           <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
             Verify, validate, and clean your business leads with AI-powered precision. The ultimate tool for modern lead generation.
@@ -50,7 +54,7 @@ export default function LandingPage() {
             </div>
             <div className="flex flex-col items-center gap-2">
               <div className="p-3 bg-card rounded-xl border border-primary/10 mb-2">
-                <Zap className="h-6 w-6 text-primary" />
+                <Logo size={24} />
               </div>
               <span className="text-sm font-semibold">Real-time API</span>
             </div>

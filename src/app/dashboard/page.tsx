@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LeadPulseDashboard from "@/components/LeadPulseDashboard";
-import { Zap, LogOut, Plus, User, Wallet, ShieldCheck } from "lucide-react";
+import { LogOut, Plus, User, Wallet, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { 
   DropdownMenu, 
@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import Logo from "@/components/Logo";
 
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
@@ -57,13 +58,13 @@ export default function DashboardPage() {
         <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-6 bg-card/50 p-6 rounded-3xl border border-white/5 backdrop-blur-sm">
           <div className="flex flex-col items-center md:items-start gap-1">
             <div className="flex items-center gap-3">
+              <Logo size={48} />
               <h1 className="text-4xl font-black italic tracking-tighter text-foreground text-3d">
                 num<span className="text-primary">checkr</span>
               </h1>
             </div>
             <div className="flex items-center gap-2 mt-1">
-              <Zap className="h-4 w-4 text-primary animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Lead Intelligence System</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground ml-1">Lead Intelligence System</span>
             </div>
           </div>
 

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -5,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Zap, Loader2, ServerCrash } from "lucide-react";
+import { Loader2, ServerCrash } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
 import { loginUser } from "@/app/actions/backend";
+import Logo from "@/components/Logo";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -82,8 +84,8 @@ export default function LoginPage() {
           
           <CardHeader className="space-y-1 text-center">
             <div className="flex justify-center mb-4">
-               <div className="bg-primary/10 p-3 rounded-2xl border border-primary/20">
-                  <Zap className="h-8 w-8 text-primary" />
+               <div className="bg-primary/5 p-4 rounded-3xl border border-primary/20">
+                  <Logo size={60} />
                </div>
             </div>
             <CardTitle className="text-3xl font-black italic uppercase tracking-tighter">Backend Login</CardTitle>

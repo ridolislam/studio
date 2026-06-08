@@ -3,9 +3,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, X, Zap, Phone, LayoutDashboard, LogIn, UserPlus } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import Logo from "./Logo";
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -20,10 +21,10 @@ export default function Navbar() {
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
-          <div className="relative bg-card p-2 rounded-lg border border-primary/20 group-hover:scale-110 transition-all duration-300">
-             <Zap className="h-6 w-6 text-primary" />
+          <div className="relative group-hover:scale-110 transition-all duration-300">
+             <Logo size={42} />
           </div>
-          <span className="text-2xl font-black tracking-tighter italic">numcheckr</span>
+          <span className="text-2xl font-black tracking-tighter italic text-3d">numcheckr</span>
         </Link>
 
         {/* Desktop Nav */}
