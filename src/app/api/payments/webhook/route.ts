@@ -5,40 +5,36 @@ import { doc, updateDoc, increment, getDoc, setDoc, serverTimestamp } from 'fire
 import crypto from 'crypto';
 
 /**
- * @fileOverview Webhook handler for NOWPayments IPN (Instant Payment Notification).
- * This updates the user's credits automatically after crypto confirmation.
+ * @fileOverview Webhook handler for Cryptomus IPN.
+ * Automatically updates user credits after crypto confirmation.
  */
 
 export async function POST(req: NextRequest) {
-  const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
-  const hmacHeader = req.headers.get('x-nowpayments-sig');
-  
+  const apiKey = process.env.CRYPTOMUS_API_KEY;
   const payload = await req.json();
-  const { firestore } = initializeFirebase();
+  const { sign, ...data } = payload;
 
-  // Verify HMAC signature to ensure the request is from NOWPayments
-  if (ipnSecret && hmacHeader) {
-    const sortedPayload = Object.keys(payload)
-      .sort()
-      .reduce((obj: any, key) => {
-        obj[key] = payload[key];
-        return obj;
-      }, {});
-    
-    const hmac = crypto.createHmac('sha512', ipnSecret);
-    const signature = hmac.update(JSON.stringify(sortedPayload)).digest('hex');
+  // Verify Cryptomus Signature
+  if (apiKey) {
+    const dataString = Buffer.from(JSON.stringify(data)).toString('base64');
+    const calculatedSign = crypto.createHash('md5').update(dataString + apiKey).digest('hex');
 
-    if (signature !== hmacHeader) {
-      console.error("Invalid Webhook Signature");
+    if (calculatedSign !== sign) {
+      console.error("Invalid Webhook Signature from Cryptomus");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
   }
 
-  // NOWPayments payment status check
-  // Typical statuses: 'finished', 'partially_paid', 'failed', 'expired'
-  if (payload.payment_status === 'finished') {
-    const userId = payload.case; // We stored UID in 'case' field
-    const creditsToBuy = parseInt(payload.purchase_id); // We stored credits in 'purchase_id'
+  // Cryptomus payment status check: 'paid' or 'paid_over'
+  if (payload.status === 'paid' || payload.status === 'paid_over') {
+    const { firestore } = initializeFirebase();
+    
+    // Extract UID and credits from additional_data
+    const additionalData = payload.additional_data; // format "uid:credits"
+    if (!additionalData) return NextResponse.json({ status: "ok" });
+
+    const [userId, creditsStr] = additionalData.split(':');
+    const creditsToBuy = parseInt(creditsStr);
 
     if (userId && !isNaN(creditsToBuy)) {
       try {
@@ -58,7 +54,7 @@ export async function POST(req: NextRequest) {
           });
         }
         
-        console.log(`Success: Added ${creditsToBuy} credits to user ${userId}`);
+        console.log(`Success: Added ${creditsToBuy} credits to user ${userId} via Cryptomus`);
       } catch (error) {
         console.error("Firestore Update Error in Webhook:", error);
         return NextResponse.json({ error: "Database update failed" }, { status: 500 });
