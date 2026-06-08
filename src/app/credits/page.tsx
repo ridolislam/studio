@@ -29,7 +29,7 @@ export default function CreditsPage() {
   }, []);
 
   const handlePurchase = async () => {
-    // 1. Get user from localStorage
+    // ১. লোকাল স্টোরেজ থেকে ইউজারের ইমেইল নিন
     const userData = localStorage.getItem('user');
     if (!userData) {
       toast({ 
@@ -42,7 +42,7 @@ export default function CreditsPage() {
     }
     const user = JSON.parse(userData);
 
-    // 2. Validation (Minimum 100 credits)
+    // ২. ভ্যালিডেশন (কমপক্ষে ১০০ ক্রেডিট)
     if (creditAmount < 100) {
       toast({ 
         variant: "destructive", 
@@ -54,7 +54,7 @@ export default function CreditsPage() {
     
     setIsPurchasing(true);
     try {
-      // 3. Call Render Backend
+      // ৩. রেন্ডার ব্যাকএন্ডে রিকোয়েস্ট পাঠানো
       const response = await fetch(`${API_BASE}/api/user/create-payment`, {
         method: 'POST',
         headers: {
@@ -68,7 +68,7 @@ export default function CreditsPage() {
 
       const data = await response.json();
 
-      // 4. Handle Redirect
+      // ৪. সাকসেস হলে পেমেন্ট গেটওয়েতে রিডাইরেক্ট করা
       if (data.success && data.invoice_url) {
         toast({ title: "Redirecting...", description: "Opening secure crypto payment gateway." });
         window.location.href = data.invoice_url;
