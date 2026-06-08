@@ -51,8 +51,17 @@
   100% { box-shadow: 0 0 0 0 rgba(113, 85, 255, 0); }
 }
 
+@keyframes pulse-zoom {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
 .animate-pulse-violet {
   animation: pulse-violet 2s infinite;
+}
+
+.animate-pulse-zoom {
+  animation: pulse-zoom 2s infinite ease-in-out;
 }
 
 .sticky-header th {
