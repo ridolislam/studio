@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -26,7 +25,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "next/navigation";
-import { fetchUserCredits, validateNumber } from "@/app/actions/backend";
+import { validateNumber } from "@/app/actions/backend";
 
 interface ValidationResult {
   id: string;
@@ -55,23 +54,10 @@ export default function LeadPulseDashboard() {
       router.push("/login");
       return;
     }
-    loadCredits();
+    const user = JSON.parse(userStr);
+    setCredits(user.credits || 0);
+    setIsLoadingCredits(false);
   }, [router]);
-
-  const loadCredits = async () => {
-    try {
-      const userStr = localStorage.getItem('user');
-      if (!userStr) return;
-      const user = JSON.parse(userStr);
-      
-      const result = await fetchUserCredits(user.id || user._id || user.uid, user.token || '');
-      setCredits(result.credits);
-    } catch (error) {
-      console.error("Failed to load credits", error);
-    } finally {
-      setIsLoadingCredits(false);
-    }
-  };
 
   const handleStart = async () => {
     if (!numberInput.trim()) {
@@ -90,23 +76,25 @@ export default function LeadPulseDashboard() {
     processingRef.current = true;
     setProgress(0);
 
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return;
+    const user = JSON.parse(userStr);
 
     for (let i = 0; i < numbers.length; i++) {
       if (!processingRef.current) break;
 
       try {
         const result = await validateNumber({ 
-          number: numbers[i],
-          userId: user.id || user._id || user.uid 
-        }, user.token || '');
+          email: user.email,
+          number: numbers[i]
+        });
 
         if (result.success) {
           const data = result.data;
           const newResult: ValidationResult = {
             id: Math.random().toString(36).substr(2, 9),
             number: data.number || numbers[i],
-            type: data.type || "Unknown",
+            type: data.line_type || "Unknown",
             carrier: data.carrier || "Unknown",
             location: data.location || "Unknown",
             status: "success",
@@ -114,9 +102,20 @@ export default function LeadPulseDashboard() {
           };
 
           setResults(prev => [newResult, ...prev]);
-          setCredits(prev => Math.max(0, prev - 1));
+          
+          // Update credits from backend response
+          if (result.remainingCredits !== undefined) {
+            setCredits(result.remainingCredits);
+            // Update localStorage to keep UI in sync after refresh
+            const updatedUser = { ...user, credits: result.remainingCredits };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+          }
         } else {
           toast({ variant: "destructive", title: "Error", description: result.message });
+          if (result.message === "No Credits") {
+            processingRef.current = false;
+            break;
+          }
         }
       } catch (error) {
         console.error(`Error validating ${numbers[i]}`, error);
