@@ -1,13 +1,10 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   Play, 
   Square, 
-  Download, 
-  Phone, 
-  Building2, 
   CheckCircle2, 
   Search,
   Zap,
@@ -15,9 +12,8 @@ import {
   Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Table, 
@@ -30,8 +26,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useRouter } from "next/navigation";
-
-const API_BASE = 'https://numcheckr.onrender.com';
+import { fetchUserCredits, validateNumber } from "@/app/actions/backend";
 
 interface ValidationResult {
   id: string;
@@ -54,29 +49,25 @@ export default function LeadPulseDashboard() {
   const router = useRouter();
   const processingRef = useRef<boolean>(false);
 
-  // Protection: Redirect if no user
   useEffect(() => {
     const userStr = localStorage.getItem('user');
     if (!userStr) {
       router.push("/login");
       return;
     }
-    fetchCredits();
+    loadCredits();
   }, [router]);
 
-  const fetchCredits = async () => {
+  const loadCredits = async () => {
     try {
       const userStr = localStorage.getItem('user');
       if (!userStr) return;
       const user = JSON.parse(userStr);
       
-      const response = await fetch(`${API_BASE}/api/user/credits?userId=${user.id || user._id || user.uid}`, {
-        headers: { 'Authorization': `Bearer ${user.token || ''}` }
-      });
-      const data = await response.json();
-      setCredits(data.credits || 0);
+      const result = await fetchUserCredits(user.id || user._id || user.uid, user.token || '');
+      setCredits(result.credits);
     } catch (error) {
-      console.error("Failed to fetch credits", error);
+      console.error("Failed to load credits", error);
     } finally {
       setIsLoadingCredits(false);
     }
@@ -88,12 +79,13 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    if (credits <= 0) {
-      toast({ variant: "destructive", title: "Insufficient Credits", description: "Please buy more credits to continue." });
+    const numbers = numberInput.split('\n').map(n => n.trim()).filter(n => n !== "");
+    
+    if (credits < numbers.length) {
+      toast({ variant: "destructive", title: "Insufficient Credits", description: `You need ${numbers.length} credits but have ${credits}.` });
       return;
     }
 
-    const numbers = numberInput.split('\n').map(n => n.trim()).filter(n => n !== "");
     setIsProcessing(true);
     processingRef.current = true;
     setProgress(0);
@@ -104,20 +96,13 @@ export default function LeadPulseDashboard() {
       if (!processingRef.current) break;
 
       try {
-        const response = await fetch(`${API_BASE}/api/user/validate`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${user.token || ''}`
-          },
-          body: JSON.stringify({ 
-            number: numbers[i],
-            userId: user.id || user._id || user.uid 
-          }),
-        });
+        const result = await validateNumber({ 
+          number: numbers[i],
+          userId: user.id || user._id || user.uid 
+        }, user.token || '');
 
-        if (response.ok) {
-          const data = await response.json();
+        if (result.success) {
+          const data = result.data;
           const newResult: ValidationResult = {
             id: Math.random().toString(36).substr(2, 9),
             number: data.number || numbers[i],
@@ -131,7 +116,7 @@ export default function LeadPulseDashboard() {
           setResults(prev => [newResult, ...prev]);
           setCredits(prev => Math.max(0, prev - 1));
         } else {
-          throw new Error("Validation failed");
+          toast({ variant: "destructive", title: "Error", description: result.message });
         }
       } catch (error) {
         console.error(`Error validating ${numbers[i]}`, error);
@@ -142,7 +127,7 @@ export default function LeadPulseDashboard() {
 
     setIsProcessing(false);
     processingRef.current = false;
-    toast({ title: "Processing Complete", description: `Validated ${numbers.length} numbers.` });
+    toast({ title: "Processing Complete", description: `Finished processing requests.` });
   };
 
   const handleStop = () => {
@@ -152,7 +137,6 @@ export default function LeadPulseDashboard() {
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-      {/* Sidebar: Controls */}
       <div className="xl:col-span-1 space-y-6">
         <Card className="border-primary/20 bg-card shadow-lg">
           <CardHeader className="bg-primary/5">
@@ -187,7 +171,6 @@ export default function LeadPulseDashboard() {
           </CardContent>
         </Card>
 
-        {/* Wallet Display */}
         <Card className="bg-primary/5 border border-primary/20 rounded-xl p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -203,9 +186,7 @@ export default function LeadPulseDashboard() {
         </Card>
       </div>
 
-      {/* Main Content: Results Table */}
       <div className="xl:col-span-3 space-y-6">
-        {/* Progress */}
         <div className="space-y-2 bg-card/50 p-4 rounded-xl border border-muted shadow-inner">
           <div className="flex justify-between text-[10px] font-black uppercase tracking-tighter px-1">
             <span className="text-muted-foreground">{isProcessing ? "Validator Engine Active" : "Engine Standby"}</span>
@@ -214,7 +195,6 @@ export default function LeadPulseDashboard() {
           <Progress value={progress} className="h-2" />
         </div>
 
-        {/* Results Table */}
         <Card className="bg-card border-muted shadow-2xl overflow-hidden">
           <CardHeader className="border-b border-muted bg-muted/5">
             <CardTitle className="text-lg font-black flex items-center gap-2">

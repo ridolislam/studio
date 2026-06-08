@@ -3,15 +3,14 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Zap, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
-
-const API_BASE = 'https://numcheckr.onrender.com';
+import { loginUser } from "@/app/actions/backend";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -21,7 +20,6 @@ export default function LoginPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check if already logged in
     const user = localStorage.getItem('user');
     if (user) {
       router.push("/dashboard");
@@ -41,25 +39,17 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/user/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
+      const result = await loginUser({ email, password });
 
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem('user', JSON.stringify(data.user || data));
+      if (result.success) {
+        localStorage.setItem('user', JSON.stringify(result.data.user || result.data));
         toast({
           title: "Logged in successfully",
           description: "Redirecting to dashboard...",
         });
         router.push("/dashboard");
       } else {
-        throw new Error(data.message || "Invalid credentials");
+        throw new Error(result.message);
       }
     } catch (error: any) {
       toast({
