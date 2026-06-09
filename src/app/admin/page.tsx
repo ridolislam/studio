@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -32,7 +33,7 @@ import {
   uploadAdminKeys,
   clearAdminKeys
 } from "@/app/actions/backend";
-import * as XLSX from 'xlsx';
+import { read, utils } from 'xlsx';
 import Logo from "@/components/Logo";
 
 export default function AdminPanel() {
@@ -152,12 +153,13 @@ export default function AdminPanel() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const workbook = XLSX.read(event.target?.result, { type: 'binary' });
+        const data = event.target?.result;
+        const workbook = read(data, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
-        const rows: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+        const rows: any[][] = utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
         
         const keys = rows
-          .map(r => String(r[0]).trim())
+          .map(r => String(r[0] || '').trim())
           .filter(k => k.length > 15);
         
         if (keys.length === 0) {

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -29,9 +30,18 @@ export default function DashboardPage() {
     if (!userStr) {
       router.push("/login");
     } else {
-      const currentUser = JSON.parse(userStr);
-      setUser(currentUser);
-      syncProfile(currentUser.email);
+      try {
+        const currentUser = JSON.parse(userStr);
+        if (currentUser && currentUser.email) {
+          setUser(currentUser);
+          syncProfile(currentUser.email);
+        } else {
+          router.push("/login");
+        }
+      } catch (e) {
+        localStorage.removeItem('user');
+        router.push("/login");
+      }
     }
   }, [router]);
 
@@ -40,7 +50,12 @@ export default function DashboardPage() {
     const interval = setInterval(() => {
       const userStr = localStorage.getItem('user');
       if (userStr) {
-        syncProfile(JSON.parse(userStr).email);
+        try {
+          const parsed = JSON.parse(userStr);
+          if (parsed && parsed.email) {
+            syncProfile(parsed.email);
+          }
+        } catch (e) {}
       }
     }, 60000);
     return () => clearInterval(interval);
@@ -51,26 +66,28 @@ export default function DashboardPage() {
    * Updates UI and localStorage if server credits differ from local data.
    */
   const syncProfile = async (email: string) => {
+    if (!email) return;
     setIsSyncing(true);
     try {
       const res = await syncUserProfile(email);
       if (res && res.success) {
         const userStr = localStorage.getItem('user');
         if (userStr) {
-          const userData = JSON.parse(userStr);
-          // Only update if server credits differ
-          if (userData.credits !== res.credits) {
-            const updatedUser = { ...userData, credits: res.credits };
-            localStorage.setItem('user', JSON.stringify(updatedUser));
-            setUser(updatedUser);
-            
-            // Log for verification
-            console.log("Credits updated from Admin Panel!");
-            
-            // Update UI element if exists
-            const creditElement = document.getElementById('creditBalance');
-            if (creditElement) creditElement.innerText = res.credits.toString();
-          }
+          try {
+            const userData = JSON.parse(userStr);
+            if (userData && userData.credits !== res.credits) {
+              const updatedUser = { ...userData, credits: res.credits };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+              setUser(updatedUser);
+              
+              // Log for verification
+              console.log("Credits updated from Admin Panel!");
+              
+              // Update UI element if exists
+              const creditElement = document.getElementById('creditBalance');
+              if (creditElement) creditElement.innerText = res.credits.toString();
+            }
+          } catch (e) {}
         }
       }
     } catch (err) {

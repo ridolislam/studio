@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -92,9 +93,16 @@ export default function LeadPulseDashboard() {
       router.push("/login");
       return;
     }
-    const user = JSON.parse(userStr);
-    setCredits(user.credits || 0);
-    fetchHistory();
+    try {
+      const user = JSON.parse(userStr);
+      if (user) {
+        setCredits(user.credits || 0);
+        fetchHistory();
+      }
+    } catch (e) {
+      localStorage.removeItem('user');
+      router.push("/login");
+    }
   }, [router]);
 
   /**
@@ -104,21 +112,24 @@ export default function LeadPulseDashboard() {
   const fetchHistory = async () => {
     const userStr = localStorage.getItem('user');
     if (!userStr) return;
-    const user = JSON.parse(userStr);
-
-    setIsLoadingHistory(true);
     try {
-      const result = await getUserHistory({ email: user.email });
-      if (result.success) {
-        // Server already returns reversed array (latest first)
-        setHistory(result.history || []);
-        setFilteredHistory(result.history || []);
+      const user = JSON.parse(userStr);
+      if (!user || !user.email) return;
+
+      setIsLoadingHistory(true);
+      try {
+        const result = await getUserHistory({ email: user.email });
+        if (result.success) {
+          // Server already returns reversed array (latest first)
+          setHistory(result.history || []);
+          setFilteredHistory(result.history || []);
+        }
+      } catch (err) {
+        console.error("History fetch error:", err);
+      } finally {
+        setIsLoadingHistory(false);
       }
-    } catch (err) {
-      console.error("History fetch error:", err);
-    } finally {
-      setIsLoadingHistory(false);
-    }
+    } catch (e) {}
   };
 
   useEffect(() => {
@@ -198,53 +209,56 @@ export default function LeadPulseDashboard() {
 
     const userStr = localStorage.getItem('user');
     if (!userStr) return;
-    const user = JSON.parse(userStr);
+    try {
+      const user = JSON.parse(userStr);
+      if (!user) return;
 
-    for (let i = 0; i < lines.length; i++) {
-      if (!processingRef.current) break;
+      for (let i = 0; i < lines.length; i++) {
+        if (!processingRef.current) break;
 
-      try {
-        const result = await validateNumber({ 
-          email: user.email,
-          number: lines[i]
-        });
+        try {
+          const result = await validateNumber({ 
+            email: user.email,
+            number: lines[i]
+          });
 
-        if (result.success) {
-          const data = result.data;
-          const type = data.line_type?.toLowerCase() || "unknown";
-          
-          const newResult: ValidationResult = {
-            id: Math.random().toString(36).substr(2, 9),
-            number: data.number || lines[i],
-            type: data.line_type || "Invalid",
-            carrier: data.carrier || "N/A",
-            location: data.location || "N/A",
-            status: data.valid ? "success" : "invalid",
-            timestamp: new Date().toISOString()
-          };
+          if (result.success) {
+            const data = result.data;
+            const type = data.line_type?.toLowerCase() || "unknown";
+            
+            const newResult: ValidationResult = {
+              id: Math.random().toString(36).substr(2, 9),
+              number: data.number || lines[i],
+              type: data.line_type || "Invalid",
+              carrier: data.carrier || "N/A",
+              location: data.location || "N/A",
+              status: data.valid ? "success" : "invalid",
+              timestamp: new Date().toISOString()
+            };
 
-          setResults(prev => [newResult, ...prev]);
+            setResults(prev => [newResult, ...prev]);
 
-          if (!data.valid) {
-            setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
-          } else if (type.includes("mobile")) {
-            setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
-          } else {
-            setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
+            if (!data.valid) {
+              setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
+            } else if (type.includes("mobile")) {
+              setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
+            } else {
+              setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
+            }
+            
+            if (result.remainingCredits !== undefined) {
+              setCredits(result.remainingCredits);
+              const updatedUser = { ...user, credits: result.remainingCredits };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+            }
           }
-          
-          if (result.remainingCredits !== undefined) {
-            setCredits(result.remainingCredits);
-            const updatedUser = { ...user, credits: result.remainingCredits };
-            localStorage.setItem('user', JSON.stringify(updatedUser));
-          }
+        } catch (error) {
+          console.error(`Error validating ${lines[i]}`, error);
         }
-      } catch (error) {
-        console.error(`Error validating ${lines[i]}`, error);
-      }
 
-      setProgress(Math.round(((i + 1) / lines.length) * 100));
-    }
+        setProgress(Math.round(((i + 1) / lines.length) * 100));
+      }
+    } catch (e) {}
 
     setIsProcessing(false);
     processingRef.current = false;
@@ -478,7 +492,7 @@ export default function LeadPulseDashboard() {
                     <TableRow className="border-white/5">
                       <TableHead className="text-[10px] font-black uppercase tracking-widest py-6">Date & Time</TableHead>
                       <TableHead className="text-[10px] font-black uppercase tracking-widest">Transaction Type</TableHead>
-                      <TableHead className="text-[10px] font-black uppercase tracking-widest">Description</TableHead>
+                      <TableHead className="text-[10px) font-black uppercase tracking-widest">Description</TableHead>
                       <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Amount / Impact</TableHead>
                     </TableRow>
                   </TableHeader>
