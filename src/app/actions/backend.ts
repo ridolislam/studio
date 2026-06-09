@@ -146,3 +146,19 @@ export async function uploadAdminKeys(payload: { keys: string[] }) {
     return { success: false };
   }
 }
+
+/**
+ * Clears all API keys from the database.
+ */
+export async function clearAdminKeys() {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/clear-keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: ADMIN_SECRET }),
+    });
+    return await response.json();
+  } catch (error) {
+    return { success: false, message: "Server connection failed" };
+  }
+}

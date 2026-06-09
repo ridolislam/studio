@@ -14,7 +14,9 @@ import {
   ShieldAlert,
   Unlock,
   Zap,
-  Terminal
+  Terminal,
+  Trash2,
+  AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -23,7 +25,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { getAdminStats, getAdminUsers, updateAdminUser, uploadAdminKeys } from "@/app/actions/backend";
+import { 
+  getAdminStats, 
+  getAdminUsers, 
+  updateAdminUser, 
+  uploadAdminKeys,
+  clearAdminKeys
+} from "@/app/actions/backend";
 import * as XLSX from 'xlsx';
 import Logo from "@/components/Logo";
 
@@ -35,6 +43,7 @@ export default function AdminPanel() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
   const [logs, setLogs] = useState<string[]>([
     "[SYSTEM] Admin Panel Connected.",
     "[SYSTEM] Waiting for server logs..."
@@ -62,7 +71,7 @@ export default function AdminPanel() {
         setUsers(Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []));
       }
       
-      addLog(`[SYSTEM] Sync completed. Found ${users.length} users.`);
+      addLog(`[SYSTEM] Sync completed.`);
     } catch (err) {
       addLog("[ERROR] Failed to connect to admin API.");
       toast({ 
@@ -111,6 +120,29 @@ export default function AdminPanel() {
       toast({ variant: "destructive", title: "Error", description: res.message || "Failed to update user." });
     }
     setIsUpdating(null);
+  };
+
+  const handleClearKeys = async () => {
+    if (!confirm("আপনি কি নিশ্চিত যে সব API Key ডিলিট করতে চান?")) return;
+
+    setIsClearing(true);
+    addLog(`[ADMIN] Clearing all API keys from database...`);
+    
+    try {
+      const res = await clearAdminKeys();
+      if (res.success) {
+        addLog(`[SYSTEM] ${res.message}`);
+        toast({ title: "Success", description: res.message });
+        fetchData();
+      } else {
+        addLog(`[ERROR] ${res.message || "Failed to clear keys"}`);
+        toast({ variant: "destructive", title: "Error", description: res.message || "Failed to clear keys" });
+      }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Connection failed" });
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -240,8 +272,21 @@ export default function AdminPanel() {
                 <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
                   <Key size={120} />
                 </div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/70 mb-2">Active API Keys</p>
-                <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.totalKeys || 0}</h3>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/70 mb-2">Active API Keys</p>
+                    <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.totalKeys || 0}</h3>
+                  </div>
+                  <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    className="rounded-xl h-10 font-black italic text-[10px] uppercase shadow-lg shadow-destructive/20 border-2 border-white/10"
+                    onClick={handleClearKeys}
+                    disabled={isClearing}
+                  >
+                    {isClearing ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Trash2 className="h-3 w-3 mr-2" /> CLEAR ALL</>}
+                  </Button>
+                </div>
               </Card>
               <Card className="border-blue-500/20 bg-blue-500/5 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
                 <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
@@ -260,10 +305,15 @@ export default function AdminPanel() {
                   type="file" 
                   id="excelFile" 
                   onChange={handleExcelUpload} 
-                  className="bg-black/20 border-white/10 rounded-xl h-12 py-2" 
+                  className="bg-black/20 border-white/10 rounded-xl h-16 py-4 px-6 file:font-black file:italic file:bg-primary file:text-white file:rounded-lg file:border-0 hover:file:bg-primary/90" 
                   accept=".xlsx,.xls" 
                 />
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select an .xlsx or .xls file containing keys in the first column.</p>
+                <div className="flex items-center gap-2 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-200/70">
+                    Select an .xlsx or .xls file containing keys in the first column. Existing keys will be kept.
+                  </p>
+                </div>
               </div>
             </Card>
 
@@ -315,7 +365,7 @@ export default function AdminPanel() {
                             <p className="font-black italic uppercase text-xs">Fetching Server Data...</p>
                           </TableCell>
                         </TableRow>
-                      ) : users.filter(u => u.email.toLowerCase().includes(search.toLowerCase())).map((user) => (
+                      ) : users.filter(u => u.email?.toLowerCase().includes(search.toLowerCase())).map((user) => (
                         <TableRow key={user._id || user.email} className="border-white/5 hover:bg-white/5 h-20 group transition-colors">
                           <TableCell className="px-6 md:px-8">
                             <span className="font-black italic text-base md:text-lg">{user.email}</span>
