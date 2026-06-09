@@ -38,7 +38,6 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRouter } from "next/navigation";
 import { validateNumber, getUserHistory } from "@/app/actions/backend";
-import { extractAIData } from "@/ai/flows/ai-data-extraction";
 import * as XLSX from 'xlsx';
 import { cn } from "@/lib/utils";
 
@@ -142,54 +141,85 @@ export default function LeadPulseDashboard() {
     const reader = new FileReader();
     const extension = file.name.split('.').pop()?.toLowerCase();
 
-    reader.onload = async (event) => {
-      const content = event.target?.result;
-      if (!content) return;
+    setIsExtracting(true);
+    toast({ title: "Scanning File", description: "Extracting leads from file..." });
 
-      setIsExtracting(true);
-      toast({ title: "Scanning File", description: "AI is extracting leads..." });
-
-      let textToExtract = "";
+    reader.onload = (event) => {
       try {
+        const data = event.target?.result;
+        if (!data) return;
+
+        let rows: any[][] = [];
+
+        // 1. ফাইল টাইপ অনুযায়ী ডাটা পড়া
         if (extension === 'xlsx' || extension === 'xls') {
-          // Using ArrayBuffer for better Excel reading
-          const workbook = XLSX.read(content, { type: 'array' });
+          const workbook = XLSX.read(data, { type: 'binary' });
           const sheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[sheetName];
-          // CSV is more consistent for AI text extraction than raw txt
-          textToExtract = XLSX.utils.sheet_to_csv(sheet);
+          rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
         } else {
-          textToExtract = content.toString();
+          // CSV বা TXT এর জন্য
+          const text = data.toString();
+          rows = text.split('\n').map(line => line.split(','));
         }
 
-        if (!textToExtract.trim()) {
-          throw new Error("File is empty or could not be read.");
+        const extractedNumbers: string[] = [];
+        let extractedLinksCount = 0;
+
+        // 2. প্রতিটি রো (Row) প্রসেস করা (User logic implemented)
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length < 1) continue;
+
+          let foundNumber = "";
+          let sourceLink = String(row[0] || "").trim(); // প্রথম কলাম Source Link
+          let businessName = String(row[row.length - 1] || "").trim(); // শেষ কলাম Business Name
+
+          // ৩. রো এর ভেতর থেকে মোবাইল নাম্বার খোঁজা (Regex Logic for +1 and others)
+          row.forEach((cell) => {
+            const cellVal = String(cell || "").trim();
+            // নাম্বার ফরম্যাট চেক (৭ থেকে ১৫ ডিজিট, stripping symbols)
+            const cleanCell = cellVal.replace(/[\s-()]/g, '');
+            if (!foundNumber && /^\+?[0-9]{7,15}$/.test(cleanCell)) {
+              foundNumber = cleanCell;
+            }
+          });
+
+          // ৪. যদি নাম্বার পাওয়া যায় তবেই লিস্টে যোগ হবে
+          if (foundNumber) {
+            extractedNumbers.push(foundNumber);
+            if (sourceLink.startsWith('http')) {
+              extractedLinksCount++;
+            }
+          }
         }
 
-        const extracted = await extractAIData({ 
-          fileContent: textToExtract.slice(0, 50000), // Safety limit for AI processing
-          fileName: file.name 
-        });
-
-        if (extracted && extracted.phoneNumbers) {
-          const numbers = extracted.phoneNumbers.join('\n');
-          setNumberInput(prev => prev ? prev + '\n' + numbers : numbers);
+        if (extractedNumbers.length > 0) {
+          const numbersStr = extractedNumbers.join('\n');
+          setNumberInput(prev => prev ? prev + '\n' + numbersStr : numbersStr);
           setCounts(prev => ({ 
             ...prev, 
-            links: prev.links + (extracted.sourceLinks?.length || 0) 
+            links: prev.links + extractedLinksCount 
           }));
 
           toast({ 
-            title: "Leads Extracted", 
-            description: `Found ${extracted.phoneNumbers.length} numbers.` 
+            title: "Success", 
+            description: `Extracted ${extractedNumbers.length} phone numbers from ${file.name}.` 
+          });
+          console.log(`✅ [FILE] Total extracted: ${extractedNumbers.length} items from ${file.name}`);
+        } else {
+          toast({ 
+            variant: "destructive",
+            title: "No Data Found", 
+            description: "Could not find any valid phone numbers in this file." 
           });
         }
-      } catch (error) {
-        console.error("File processing error:", error);
+
+      } catch (err) {
+        console.error("❌ [FILE ERROR] Parsing failed:", err);
         toast({ 
           variant: "destructive", 
           title: "Scan Failed", 
-          description: "Could not parse file data. Please try a different format." 
+          description: "Could not parse file data. Please ensure it's a valid format." 
         });
       } finally {
         setIsExtracting(false);
@@ -197,8 +227,9 @@ export default function LeadPulseDashboard() {
       }
     };
 
+    // ফাইল রিড করা শুরু
     if (extension === 'xlsx' || extension === 'xls') {
-      reader.readAsArrayBuffer(file);
+      reader.readAsBinaryString(file);
     } else {
       reader.readAsText(file);
     }
@@ -264,6 +295,9 @@ export default function LeadPulseDashboard() {
               setCredits(result.remainingCredits);
               const updatedUser = { ...user, credits: result.remainingCredits };
               localStorage.setItem('user', JSON.stringify(updatedUser));
+              
+              const creditDisplay = document.getElementById('creditBalance');
+              if (creditDisplay) creditDisplay.innerText = result.remainingCredits.toString();
             }
           }
         } catch (error) {
