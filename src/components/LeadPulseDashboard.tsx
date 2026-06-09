@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -34,10 +33,15 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import { useRouter } from "next/navigation";
-import { validateNumber, getUserHistory, syncUserProfile } from "@/app/actions/backend";
+import { 
+  getUserHistory, 
+  syncUserProfile, 
+  getValidationKey, 
+  reportValidationSuccess 
+} from "@/app/actions/backend";
 import * as XLSX from 'xlsx';
 import { cn } from "@/lib/utils";
 
@@ -68,7 +72,6 @@ export default function LeadPulseDashboard() {
   const [results, setResults] = useState<ValidationResult[]>([]);
   const [credits, setCredits] = useState<number>(0);
   
-  // History State
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [filteredHistory, setFilteredHistory] = useState<HistoryItem[]>([]);
   const [historySearch, setHistorySearch] = useState("");
@@ -86,7 +89,6 @@ export default function LeadPulseDashboard() {
   const processingRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initial load and profile sync
   useEffect(() => {
     const loadAndSync = async () => {
       const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -117,7 +119,6 @@ export default function LeadPulseDashboard() {
     loadAndSync();
   }, [router]);
 
-  // Keep internal state updated from localStorage changes
   useEffect(() => {
     const handleStorageChange = () => {
       const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -244,112 +245,120 @@ export default function LeadPulseDashboard() {
 
   const handleStart = async () => {
     const lines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== "");
-    
     if (lines.length === 0) {
       toast({ variant: "destructive", title: "Input Empty", description: "Please enter numbers to validate." });
       return;
     }
 
-    let currentCredits = credits;
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-    let formattedUser: any = null;
-    if (userStr) {
-      try {
-        const user = JSON.parse(userStr);
-        formattedUser = user.data || user.user || user;
-        currentCredits = Number(formattedUser.credits) || 0;
-        setCredits(currentCredits);
-      } catch(e) {}
-    }
-
-    if (currentCredits <= 0) {
-      toast({ 
-        variant: "destructive", 
-        title: "Insufficient Credits", 
-        description: `You have 0 credits. Please top up to validate numbers.` 
-      });
-      return;
-    }
-
-    const processLimit = Math.min(lines.length, currentCredits);
+    if (!userStr) return;
+    const userObj = JSON.parse(userStr);
+    const formattedUser = userObj.data || userObj.user || userObj;
     
-    if (processLimit < lines.length) {
-      toast({
-        title: "Partial Processing",
-        description: `You have ${currentCredits} credits. Validating the first ${processLimit} numbers.`
-      });
+    let currentCredits = Number(formattedUser.credits) || 0;
+    if (currentCredits <= 0) {
+      toast({ variant: "destructive", title: "Insufficient Credits", description: "Please top up to validate numbers." });
+      return;
     }
 
     setIsProcessing(true);
     processingRef.current = true;
     setProgress(0);
 
+    const processLimit = Math.min(lines.length, currentCredits);
+
     for (let i = 0; i < processLimit; i++) {
       if (!processingRef.current) break;
 
-      try {
-        // Delay to prevent 429 Too Many Requests (2 seconds)
-        if (i > 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+      const currentNumber = lines[i];
+      let retryCount = 0;
+      let validated = false;
 
-        const result = await validateNumber({ 
-          email: formattedUser.email,
-          number: lines[i]
-        });
-
-        // Backend format compatibility: Support both result.data and direct result
-        const valData = result.data || result;
-
-        if (result.success || valData.success) {
-          const type = valData.line_type?.toLowerCase() || "unknown";
-          
-          const newResult: ValidationResult = {
-            id: Math.random().toString(36).substr(2, 9),
-            number: valData.number || lines[i],
-            type: valData.line_type || "Invalid",
-            carrier: valData.carrier || "N/A",
-            location: valData.location || "N/A",
-            status: valData.valid ? "success" : "invalid",
-            timestamp: new Date().toISOString()
-          };
-
-          // Update results list immediately
-          setResults(prev => [newResult, ...prev]);
-
-          // Update counts
-          if (!valData.valid) {
-            setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
-          } else if (type.includes("mobile")) {
-            setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
-          } else {
-            setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
+      while (retryCount < 2 && !validated) {
+        try {
+          // 1. Get Key from Backend
+          const keyRes = await getValidationKey(formattedUser.email);
+          if (!keyRes.success) {
+            toast({ variant: "destructive", title: "Key Error", description: keyRes.message });
+            break;
           }
-          
-          // Update credits if returned
-          const remCredits = result.remainingCredits !== undefined ? result.remainingCredits : valData.remainingCredits;
-          if (remCredits !== undefined) {
-            const newRemCredits = Number(remCredits);
-            setCredits(newRemCredits);
-            const updatedUser = { ...formattedUser, credits: newRemCredits };
+
+          const { apiKey, rapidKey } = keyRes;
+
+          // 2. Direct Fetch to RapidAPI
+          const rapidResponse = await fetch(
+            `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${currentNumber}&access_key=${apiKey}`,
+            {
+              method: 'GET',
+              headers: {
+                'x-rapidapi-key': rapidKey,
+                'x-rapidapi-host': 'apilayer-numverify-v1.p.rapidapi.com'
+              }
+            }
+          );
+
+          if (rapidResponse.status === 429) {
+            toast({ title: "Rate Limit", description: "API rate limit hit. Retrying with new key..." });
+            await new Promise(r => setTimeout(r, 1000));
+            retryCount++;
+            continue;
+          }
+
+          if (!rapidResponse.ok) throw new Error("RapidAPI Request Failed");
+
+          const rapidData = await rapidResponse.json();
+
+          // 3. Report Success to Backend
+          const reportRes = await reportValidationSuccess({
+            email: formattedUser.email,
+            number: currentNumber,
+            result: rapidData
+          });
+
+          if (reportRes.success) {
+            // Update UI State
+            const newResult: ValidationResult = {
+              id: Math.random().toString(36).substr(2, 9),
+              number: rapidData.number || currentNumber,
+              type: rapidData.line_type || "Invalid",
+              carrier: rapidData.carrier || "N/A",
+              location: rapidData.location || "N/A",
+              status: rapidData.valid ? "success" : "invalid",
+              timestamp: new Date().toISOString()
+            };
+
+            setResults(prev => [newResult, ...prev]);
+
+            const lineType = rapidData.line_type?.toLowerCase() || "";
+            if (!rapidData.valid) setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
+            else if (lineType.includes("mobile")) setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
+            else setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
+
+            // Update Credits
+            const newCredits = Number(reportRes.remainingCredits);
+            setCredits(newCredits);
+            const updatedUser = { ...formattedUser, credits: newCredits };
             localStorage.setItem('user', JSON.stringify(updatedUser));
             
-            const creditDisplay = document.getElementById('creditBalance');
-            if (creditDisplay) creditDisplay.innerText = newRemCredits.toString();
-            
-            if (newRemCredits <= 0) {
-              toast({ variant: "destructive", title: "Credits Exhausted", description: "Stopping process as credits are finished." });
-              break;
-            }
+            validated = true;
+          } else {
+            throw new Error(reportRes.message || "Reporting failed");
           }
-        } else {
-          console.warn(`Validation failed for ${lines[i]}:`, result.message || valData.message);
+        } catch (error: any) {
+          console.error("Validation loop error:", error);
+          retryCount++;
+          if (retryCount >= 2) {
+             toast({ variant: "destructive", title: "Process Error", description: `Failed for ${currentNumber}` });
+          }
         }
-      } catch (error) {
-        console.error(`Error validating ${lines[i]}:`, error);
       }
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
+      
+      // 2-Second Delay between successful validations
+      if (i < processLimit - 1 && processingRef.current) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
     }
 
     setIsProcessing(false);
@@ -490,7 +499,7 @@ export default function LeadPulseDashboard() {
 
               <div className="bg-card/40 p-5 rounded-2xl border border-white/5 space-y-2">
                 <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                  <span>{isProcessing ? "Validating Engine..." : "Idle"}</span>
+                  <span>{isProcessing ? "Client Engine (User IP)..." : "Idle"}</span>
                   <span>{progress}%</span>
                 </div>
                 <Progress value={progress} className="h-2 bg-muted/30" />

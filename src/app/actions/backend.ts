@@ -53,7 +53,6 @@ export async function loginUser(payload: { email: string; password?: string }) {
 
 /**
  * Syncs user profile data based on server logic.
- * Expected Response: { success: true, credits: number, historyCount: number }
  */
 export async function syncUserProfile(email: string) {
   try {
@@ -70,8 +69,41 @@ export async function syncUserProfile(email: string) {
 }
 
 /**
+ * Fetches an API key from the backend for client-side validation.
+ */
+export async function getValidationKey(email: string) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/get-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+      cache: 'no-store',
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Failed to fetch validation keys' };
+  }
+}
+
+/**
+ * Reports a successful validation to subtract credit and update history.
+ */
+export async function reportValidationSuccess(payload: { email: string; number: string; result: any }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/report-success`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Failed to report validation success' };
+  }
+}
+
+/**
  * Fetches user history.
- * Expected Response: { success: true, history: Array } (Reversed by server)
  */
 export async function getUserHistory(payload: { email: string }) {
   try {
@@ -84,20 +116,6 @@ export async function getUserHistory(payload: { email: string }) {
     return await safeJson(response);
   } catch (error) {
     return { success: false, message: 'Connection failed to fetch history' };
-  }
-}
-
-export async function validateNumber(payload: { email: string; number: string }) {
-  try {
-    const response = await fetch(`${API_BASE}/api/user/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      cache: 'no-store',
-    });
-    return await safeJson(response);
-  } catch (error) {
-    return { success: false, message: 'Validation connection failed' };
   }
 }
 
@@ -133,9 +151,6 @@ export async function getAdminUsers() {
   }
 }
 
-/**
- * Updates user credits from Admin Panel.
- */
 export async function updateAdminUser(payload: { userId: string; credits: number }) {
   try {
     const response = await fetch(`${API_BASE}/api/admin/update-user`, {
@@ -155,9 +170,6 @@ export async function updateAdminUser(payload: { userId: string; credits: number
   }
 }
 
-/**
- * Uploads API keys from Admin Panel.
- */
 export async function uploadAdminKeys(payload: { keys: string[] }) {
   try {
     const response = await fetch(`${API_BASE}/api/admin/upload-keys`, {
@@ -174,9 +186,6 @@ export async function uploadAdminKeys(payload: { keys: string[] }) {
   }
 }
 
-/**
- * Clears all API keys from the database.
- */
 export async function clearAdminKeys() {
   try {
     const response = await fetch(`${API_BASE}/api/admin/clear-keys`, {
