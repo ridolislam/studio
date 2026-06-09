@@ -288,9 +288,9 @@ export default function LeadPulseDashboard() {
       if (!processingRef.current) break;
 
       try {
-        // Add 1 second delay to prevent 429 Too Many Requests
+        // Delay to prevent 429 Too Many Requests (2 seconds)
         if (i > 0) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
         const result = await validateNumber({ 
