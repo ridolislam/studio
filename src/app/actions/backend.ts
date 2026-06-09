@@ -51,6 +51,20 @@ export async function getUserHistory(payload: { email: string }) {
   }
 }
 
+export async function validateNumber(payload: { email: string; number: string }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+    return await response.json();
+  } catch (error) {
+    return { success: false, message: 'Validation connection failed' };
+  }
+}
+
 // Admin APIs
 export async function getAdminStats() {
   try {
