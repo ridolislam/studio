@@ -183,6 +183,7 @@ export default function LeadPulseDashboard() {
             setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
           }
           
+          // CRITICAL: Update credits from result.remainingCredits
           if (result.remainingCredits !== undefined) {
             setCredits(result.remainingCredits);
             const updatedUser = { ...user, credits: result.remainingCredits };

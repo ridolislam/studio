@@ -131,6 +131,7 @@ export default function CreditsPage() {
                     <label className="text-[10px] font-black uppercase tracking-widest opacity-70">Quantity</label>
                     <div className="relative group">
                       <Input 
+                        id="buyAmount"
                         type="number"
                         value={creditAmount}
                         onChange={(e) => setCreditAmount(Math.max(0, parseInt(e.target.value) || 0))}
