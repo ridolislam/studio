@@ -7,13 +7,13 @@ import {
   Key, 
   Upload, 
   Search, 
-  Save, 
   RefreshCcw,
   Loader2,
   Lock,
   ArrowLeft,
   ShieldAlert,
-  Unlock
+  Unlock,
+  Zap
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -34,10 +34,15 @@ export default function AdminPanel() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
   const ADMIN_SECRET = "Ridol123@";
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +101,8 @@ export default function AdminPanel() {
     };
     reader.readAsBinaryString(file);
   };
+
+  if (!isMounted) return null;
 
   if (!isAuthenticated) {
     return (
@@ -161,9 +168,9 @@ export default function AdminPanel() {
             <Logo size={56} />
             <div>
               <h1 className="text-4xl font-black italic tracking-tighter text-foreground uppercase text-3d leading-none">Admin Panel</h1>
-              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mt-2 flex items-center gap-2">
+              <div className="text-[10px] font-black uppercase tracking-[0.4em] text-primary mt-2 flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-primary animate-pulse" /> Master Terminal
-              </p>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -328,25 +335,6 @@ function DollarSign({ size = 24, className = "" }) {
     >
       <line x1="12" y1="1" x2="12" y2="23" />
       <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
-  );
-}
-
-function Zap({ size = 24, className = "" }) {
-  return (
-    <svg 
-      xmlns="http://www.w3.org/2000/svg" 
-      width={size} 
-      height={size} 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      className={className}
-    >
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
     </svg>
   );
 }
