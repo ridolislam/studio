@@ -105,10 +105,6 @@ export default function LeadPulseDashboard() {
     }
   }, [router]);
 
-  /**
-   * Fetches user activity history from server.
-   * Matches the specified history return logic.
-   */
   const fetchHistory = async () => {
     const userStr = localStorage.getItem('user');
     if (!userStr) return;
@@ -120,7 +116,6 @@ export default function LeadPulseDashboard() {
       try {
         const result = await getUserHistory({ email: user.email });
         if (result.success) {
-          // Server already returns reversed array (latest first)
           setHistory(result.history || []);
           setFilteredHistory(result.history || []);
         }
@@ -155,39 +150,58 @@ export default function LeadPulseDashboard() {
       toast({ title: "Scanning File", description: "AI is extracting leads..." });
 
       let textToExtract = "";
-      if (extension === 'xlsx' || extension === 'xls') {
-        const workbook = XLSX.read(content, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        textToExtract = XLSX.utils.sheet_to_txt(sheet);
-      } else {
-        textToExtract = content.toString();
-      }
-
       try {
+        if (extension === 'xlsx' || extension === 'xls') {
+          // Using ArrayBuffer for better Excel reading
+          const workbook = XLSX.read(content, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          // CSV is more consistent for AI text extraction than raw txt
+          textToExtract = XLSX.utils.sheet_to_csv(sheet);
+        } else {
+          textToExtract = content.toString();
+        }
+
+        if (!textToExtract.trim()) {
+          throw new Error("File is empty or could not be read.");
+        }
+
         const extracted = await extractAIData({ 
-          fileContent: textToExtract, 
+          fileContent: textToExtract.slice(0, 50000), // Safety limit for AI processing
           fileName: file.name 
         });
 
-        const numbers = extracted.phoneNumbers.join('\n');
-        setNumberInput(prev => prev ? prev + '\n' + numbers : numbers);
-        setCounts(prev => ({ ...prev, links: prev.links + extracted.sourceLinks.length }));
+        if (extracted && extracted.phoneNumbers) {
+          const numbers = extracted.phoneNumbers.join('\n');
+          setNumberInput(prev => prev ? prev + '\n' + numbers : numbers);
+          setCounts(prev => ({ 
+            ...prev, 
+            links: prev.links + (extracted.sourceLinks?.length || 0) 
+          }));
 
-        toast({ 
-          title: "Leads Extracted", 
-          description: `Found ${extracted.phoneNumbers.length} numbers.` 
-        });
+          toast({ 
+            title: "Leads Extracted", 
+            description: `Found ${extracted.phoneNumbers.length} numbers.` 
+          });
+        }
       } catch (error) {
-        toast({ variant: "destructive", title: "Scan Failed", description: "Could not parse file data." });
+        console.error("File processing error:", error);
+        toast({ 
+          variant: "destructive", 
+          title: "Scan Failed", 
+          description: "Could not parse file data. Please try a different format." 
+        });
       } finally {
         setIsExtracting(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };
 
-    if (extension === 'xlsx' || extension === 'xls') reader.readAsBinaryString(file);
-    else reader.readAsText(file);
+    if (extension === 'xlsx' || extension === 'xls') {
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.readAsText(file);
+    }
   };
 
   const handleStart = async () => {
@@ -262,7 +276,7 @@ export default function LeadPulseDashboard() {
 
     setIsProcessing(false);
     processingRef.current = false;
-    fetchHistory(); // Refresh activity history after work
+    fetchHistory();
   };
 
   const handleStop = () => {
@@ -492,7 +506,7 @@ export default function LeadPulseDashboard() {
                     <TableRow className="border-white/5">
                       <TableHead className="text-[10px] font-black uppercase tracking-widest py-6">Date & Time</TableHead>
                       <TableHead className="text-[10px] font-black uppercase tracking-widest">Transaction Type</TableHead>
-                      <TableHead className="text-[10px) font-black uppercase tracking-widest">Description</TableHead>
+                      <TableHead className="text-[10px] font-black uppercase tracking-widest">Description</TableHead>
                       <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Amount / Impact</TableHead>
                     </TableRow>
                   </TableHeader>
