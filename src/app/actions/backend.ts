@@ -64,7 +64,7 @@ export async function validateNumber(payload: { email: string; number: string })
   }
 }
 
-export async function createPayment(payload: { email: string; credits: number }) {
+export async function createPayment(payload: { email: string; credits: number; payCurrency?: string; network?: string }) {
   try {
     const response = await fetch(`${API_BASE}/api/user/create-payment`, {
       method: 'POST',
@@ -88,5 +88,26 @@ export async function createPayment(payload: { email: string; credits: number })
       success: false, 
       message: 'Unable to connect to crypto gateway. Check server status.' 
     };
+  }
+}
+
+export async function getUserHistory(payload: { email: string }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return { success: false, message: 'Could not fetch history' };
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('History Action Error:', error);
+    return { success: false, message: 'Connection failed' };
   }
 }

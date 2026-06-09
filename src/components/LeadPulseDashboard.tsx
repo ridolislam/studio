@@ -16,7 +16,11 @@ import {
   Smartphone,
   Phone,
   AlertCircle,
-  Link as LinkIcon
+  Link as LinkIcon,
+  History as HistoryIcon,
+  Calendar,
+  Filter,
+  ArrowRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,8 +36,10 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRouter } from "next/navigation";
-import { validateNumber } from "@/app/actions/backend";
+import { validateNumber, getUserHistory } from "@/app/actions/backend";
 import { extractAIData } from "@/ai/flows/ai-data-extraction";
 import * as XLSX from 'xlsx';
 
@@ -47,6 +53,16 @@ interface ValidationResult {
   timestamp: string;
 }
 
+interface HistoryItem {
+  _id?: string;
+  date: string;
+  type: 'Work' | 'Payment';
+  description: string;
+  amount: string;
+  impact: string;
+  status: string;
+}
+
 export default function LeadPulseDashboard() {
   const [numberInput, setNumberInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -56,6 +72,12 @@ export default function LeadPulseDashboard() {
   const [credits, setCredits] = useState<number>(0);
   const [isLoadingCredits, setIsLoadingCredits] = useState(true);
   
+  // History State
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [filteredHistory, setFilteredHistory] = useState<HistoryItem[]>([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
   const [counts, setCounts] = useState({
     mobile: 0,
     landline: 0,
@@ -77,7 +99,35 @@ export default function LeadPulseDashboard() {
     const user = JSON.parse(userStr);
     setCredits(user.credits || 0);
     setIsLoadingCredits(false);
+    fetchHistory();
   }, [router]);
+
+  const fetchHistory = async () => {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return;
+    const user = JSON.parse(userStr);
+
+    setIsLoadingHistory(true);
+    try {
+      const result = await getUserHistory({ email: user.email });
+      if (result.success) {
+        setHistory(result.history || []);
+        setFilteredHistory(result.history || []);
+      }
+    } catch (err) {
+      console.error("History fetch error:", err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    const filtered = history.filter(item => 
+      item.description.toLowerCase().includes(historySearch.toLowerCase()) ||
+      item.type.toLowerCase().includes(historySearch.toLowerCase())
+    );
+    setFilteredHistory(filtered);
+  }, [historySearch, history]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -183,7 +233,6 @@ export default function LeadPulseDashboard() {
             setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
           }
           
-          // CRITICAL: Update credits from result.remainingCredits
           if (result.remainingCredits !== undefined) {
             setCredits(result.remainingCredits);
             const updatedUser = { ...user, credits: result.remainingCredits };
@@ -199,6 +248,7 @@ export default function LeadPulseDashboard() {
 
     setIsProcessing(false);
     processingRef.current = false;
+    fetchHistory(); // Refresh history after work
   };
 
   const handleStop = () => {
@@ -228,162 +278,271 @@ export default function LeadPulseDashboard() {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-      <div className="xl:col-span-1 space-y-6">
-        <Card className="border-primary/20 bg-card shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-primary"></div>
-          <CardHeader>
-            <CardTitle className="text-xs font-black uppercase tracking-widest text-primary flex items-center justify-between">
-              Lead Input
-              {isExtracting && <Loader2 className="h-4 w-4 animate-spin" />}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Button 
-              variant="outline" 
-              className="w-full h-12 rounded-xl border-dashed border-primary/30"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Upload className="h-4 w-4 mr-2" /> Upload Leads
-            </Button>
-            <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.xls,.csv,.txt" />
+    <div className="space-y-8">
+      <Tabs defaultValue="tool" className="w-full">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
+           <TabsList className="grid w-full md:w-[400px] grid-cols-2 bg-card/60 border border-white/5 p-1 rounded-2xl h-14">
+            <TabsTrigger value="tool" className="rounded-xl font-black italic uppercase text-xs data-[state=active]:bg-primary data-[state=active]:text-white">
+              <Zap className="h-4 w-4 mr-2" /> Validation Tool
+            </TabsTrigger>
+            <TabsTrigger value="history" onClick={fetchHistory} className="rounded-xl font-black italic uppercase text-xs data-[state=active]:bg-primary data-[state=active]:text-white">
+              <HistoryIcon className="h-4 w-4 mr-2" /> Activity History
+            </TabsTrigger>
+          </TabsList>
 
-            <Textarea 
-              placeholder="Paste numbers here..."
-              value={numberInput}
-              onChange={(e) => setNumberInput(e.target.value)}
-              className="min-h-[250px] font-code text-xs bg-muted/20 border-white/5 rounded-2xl"
-              disabled={isProcessing}
-            />
-
-            <div className="grid grid-cols-2 gap-3">
-              <Button onClick={handleStart} disabled={isProcessing} className="h-12 bg-primary font-black italic rounded-xl">
-                <Play className="h-4 w-4 mr-2" /> START
-              </Button>
-              <Button onClick={handleStop} disabled={!isProcessing} variant="outline" className="h-12 border-destructive/30 text-destructive rounded-xl">
-                <Square className="h-4 w-4 mr-2" /> STOP
-              </Button>
+          <Card className="bg-primary/5 border-primary/20 px-6 py-3 rounded-2xl flex items-center gap-4">
+            <div className="flex flex-col items-end">
+              <p className="text-[10px] font-black uppercase text-primary/70 leading-none mb-1">Live Balance</p>
+              <h2 className="text-2xl font-black italic leading-none">{credits}</h2>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-primary/5 border-primary/20 p-6 rounded-2xl">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[10px] font-black uppercase text-primary/70">Credits</p>
-              <h2 className="text-4xl font-black italic" id="creditBalance">{credits}</h2>
-            </div>
-            <Zap className="h-10 w-10 text-primary opacity-20" />
-          </div>
-        </Card>
-      </div>
-
-      <div className="xl:col-span-3 space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button onClick={() => downloadCategory('mobile')} className="group">
-            <Card className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-green-500/10 transition-all">
-              <div>
-                <p className="text-[10px] font-black uppercase text-green-500">Mobile</p>
-                <h3 className="text-3xl font-black italic">{counts.mobile}</h3>
-              </div>
-              <Smartphone className="h-8 w-8 text-green-500 opacity-20" />
-            </Card>
-          </button>
-          
-          <button onClick={() => downloadCategory('landline')} className="group">
-            <Card className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-blue-500/10 transition-all">
-              <div>
-                <p className="text-[10px] font-black uppercase text-blue-500">Landline</p>
-                <h3 className="text-3xl font-black italic">{counts.landline}</h3>
-              </div>
-              <Phone className="h-8 w-8 text-blue-500 opacity-20" />
-            </Card>
-          </button>
-
-          <button onClick={() => downloadCategory('invalid')} className="group">
-            <Card className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-red-500/10 transition-all">
-              <div>
-                <p className="text-[10px] font-black uppercase text-red-500">Invalid</p>
-                <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
-              </div>
-              <AlertCircle className="h-8 w-8 text-red-500 opacity-20" />
-            </Card>
-          </button>
-
-          <Card className="border-primary/20 bg-primary/5 p-4 rounded-2xl flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase text-primary">Links</p>
-              <h3 className="text-3xl font-black italic">{counts.links}</h3>
-            </div>
-            <LinkIcon className="h-8 w-8 text-primary opacity-20" />
+            <div className="h-8 w-px bg-primary/20" />
+            <Zap className="h-6 w-6 text-primary animate-pulse" />
           </Card>
         </div>
 
-        <div className="bg-card/40 p-5 rounded-2xl border border-white/5 space-y-2">
-          <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-            <span>{isProcessing ? "Validating Engine..." : "Idle"}</span>
-            <span>{progress}%</span>
-          </div>
-          <Progress value={progress} className="h-2 bg-muted/30" />
-        </div>
+        <TabsContent value="tool" className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+            <div className="xl:col-span-1 space-y-6">
+              <Card className="border-primary/20 bg-card shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-1 bg-primary"></div>
+                <CardHeader>
+                  <CardTitle className="text-xs font-black uppercase tracking-widest text-primary flex items-center justify-between">
+                    Lead Input
+                    {isExtracting && <Loader2 className="h-4 w-4 animate-spin" />}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Button 
+                    variant="outline" 
+                    className="w-full h-12 rounded-xl border-dashed border-primary/30"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4 mr-2" /> Upload Leads
+                  </Button>
+                  <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.xls,.csv,.txt" />
 
-        <Card className="bg-card border-white/5 rounded-2xl overflow-hidden shadow-2xl">
-          <CardHeader className="flex flex-row items-center justify-between py-4 border-b border-white/5 bg-muted/5">
-            <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-primary" /> Validation Table
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" onClick={() => downloadCategory('all')} disabled={results.length === 0}>
-                <Download className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => { setResults([]); setCounts({mobile:0,landline:0,invalid:0,links:0}); setProgress(0); }}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
+                  <Textarea 
+                    placeholder="Paste numbers here..."
+                    value={numberInput}
+                    onChange={(e) => setNumberInput(e.target.value)}
+                    className="min-h-[250px] font-code text-xs bg-muted/20 border-white/5 rounded-2xl"
+                    disabled={isProcessing}
+                  />
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Button onClick={handleStart} disabled={isProcessing} className="h-12 bg-primary font-black italic rounded-xl">
+                      <Play className="h-4 w-4 mr-2" /> START
+                    </Button>
+                    <Button onClick={handleStop} disabled={!isProcessing} variant="outline" className="h-12 border-destructive/30 text-destructive rounded-xl">
+                      <Square className="h-4 w-4 mr-2" /> STOP
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="h-[500px] overflow-auto">
-              <Table>
-                <TableHeader className="sticky top-0 bg-card/95 backdrop-blur-md z-10">
-                  <TableRow className="border-white/5">
-                    <TableHead className="text-[10px] font-black uppercase tracking-widest">Number</TableHead>
-                    <TableHead className="text-[10px] font-black uppercase tracking-widest">Type</TableHead>
-                    <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
-                    <TableHead className="text-[10px] font-black uppercase tracking-widest">Location</TableHead>
-                    <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody id="resultBody">
-                  {results.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="h-64 text-center opacity-20">
-                        <Search className="h-12 w-12 mx-auto mb-4" />
-                        <p className="font-black italic uppercase tracking-widest">No active leads</p>
-                      </TableCell>
+
+            <div className="xl:col-span-3 space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <button onClick={() => downloadCategory('mobile')} className="group">
+                  <Card className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-green-500/10 transition-all">
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-green-500">Mobile</p>
+                      <h3 className="text-3xl font-black italic">{counts.mobile}</h3>
+                    </div>
+                    <Smartphone className="h-8 w-8 text-green-500 opacity-20" />
+                  </Card>
+                </button>
+                
+                <button onClick={() => downloadCategory('landline')} className="group">
+                  <Card className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-blue-500/10 transition-all">
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-blue-500">Landline</p>
+                      <h3 className="text-3xl font-black italic">{counts.landline}</h3>
+                    </div>
+                    <Phone className="h-8 w-8 text-blue-500 opacity-20" />
+                  </Card>
+                </button>
+
+                <button onClick={() => downloadCategory('invalid')} className="group">
+                  <Card className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-red-500/10 transition-all">
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-red-500">Invalid</p>
+                      <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
+                    </div>
+                    <AlertCircle className="h-8 w-8 text-red-500 opacity-20" />
+                  </Card>
+                </button>
+
+                <Card className="border-primary/20 bg-primary/5 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-primary">Links</p>
+                    <h3 className="text-3xl font-black italic">{counts.links}</h3>
+                  </div>
+                  <LinkIcon className="h-8 w-8 text-primary opacity-20" />
+                </Card>
+              </div>
+
+              <div className="bg-card/40 p-5 rounded-2xl border border-white/5 space-y-2">
+                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                  <span>{isProcessing ? "Validating Engine..." : "Idle"}</span>
+                  <span>{progress}%</span>
+                </div>
+                <Progress value={progress} className="h-2 bg-muted/30" />
+              </div>
+
+              <Card className="bg-card border-white/5 rounded-2xl overflow-hidden shadow-2xl">
+                <CardHeader className="flex flex-row items-center justify-between py-4 border-b border-white/5 bg-muted/5">
+                  <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-primary" /> Validation Table
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="icon" onClick={() => downloadCategory('all')} disabled={results.length === 0}>
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => { setResults([]); setCounts({mobile:0,landline:0,invalid:0,links:0}); setProgress(0); }}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="h-[500px] overflow-auto">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-card/95 backdrop-blur-md z-10">
+                        <TableRow className="border-white/5">
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest">Number</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest">Type</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest">Location</TableHead>
+                          <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Time</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {results.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5} className="h-64 text-center opacity-20">
+                              <Search className="h-12 w-12 mx-auto mb-4" />
+                              <p className="font-black italic uppercase tracking-widest">No active leads</p>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          results.map((res) => (
+                            <TableRow key={res.id} className="border-white/5 hover:bg-primary/5 transition-colors">
+                              <TableCell className="font-code font-bold text-primary">{res.number}</TableCell>
+                              <TableCell>
+                                <Badge className={`${res.status === 'invalid' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'} border-none text-[9px] font-black uppercase`}>
+                                  {res.type}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-xs font-bold">{res.carrier}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{res.location}</TableCell>
+                              <TableCell className="text-right font-code text-[10px] text-muted-foreground">
+                                {new Date(res.timestamp).toLocaleTimeString()}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="history" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <Card className="border-white/5 bg-card/60 backdrop-blur-xl shadow-2xl rounded-3xl overflow-hidden">
+            <CardHeader className="border-b border-white/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6 bg-muted/5">
+              <div className="space-y-1">
+                <CardTitle className="text-2xl font-black italic uppercase tracking-tighter">Activity History</CardTitle>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Track your work and payments</p>
+              </div>
+
+              <div className="relative w-full md:w-[350px]">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search by number or type..." 
+                  className="pl-12 h-12 bg-black/20 border-white/10 rounded-xl font-bold"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-muted/10">
+                    <TableRow className="border-white/5">
+                      <TableHead className="text-[10px] font-black uppercase tracking-widest py-6">Date & Time</TableHead>
+                      <TableHead className="text-[10px] font-black uppercase tracking-widest">Transaction Type</TableHead>
+                      <TableHead className="text-[10px] font-black uppercase tracking-widest">Description</TableHead>
+                      <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Amount / Impact</TableHead>
                     </TableRow>
-                  ) : (
-                    results.map((res) => (
-                      <TableRow key={res.id} className="border-white/5 hover:bg-primary/5 transition-colors">
-                        <TableCell className="font-code font-bold text-primary">{res.number}</TableCell>
-                        <TableCell>
-                          <Badge className={`${res.status === 'invalid' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'} border-none text-[9px] font-black uppercase`}>
-                            {res.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs font-bold">{res.carrier}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{res.location}</TableCell>
-                        <TableCell className="text-right font-code text-[10px] text-muted-foreground">
-                          {new Date(res.timestamp).toLocaleTimeString()}
+                  </TableHeader>
+                  <TableBody>
+                    {isLoadingHistory ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="h-64 text-center">
+                          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
+                          <p className="font-black italic uppercase text-xs">Syncing with blockchain...</p>
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                    ) : filteredHistory.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="h-64 text-center">
+                          <AlertCircle className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                          <p className="font-black italic uppercase text-muted-foreground/40">No records found</p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredHistory.map((item, idx) => (
+                        <TableRow key={item._id || idx} className="border-white/5 hover:bg-white/5 transition-colors group">
+                          <TableCell className="py-6">
+                            <div className="flex items-center gap-3">
+                              <Calendar className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-xs font-bold font-code">{new Date(item.date).toLocaleString()}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={cn(
+                              "border-none text-[9px] font-black uppercase px-3 py-1",
+                              item.type === 'Payment' 
+                                ? "bg-green-500/10 text-green-500" 
+                                : "bg-blue-500/10 text-blue-500"
+                            )}>
+                              {item.type === 'Payment' ? 'SUCCESS' : 'VALIDATED'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className={cn(
+                                "h-2 w-2 rounded-full",
+                                item.type === 'Payment' ? "bg-green-500" : "bg-blue-500"
+                              )} />
+                              <span className="text-sm font-bold italic truncate max-w-[200px] md:max-w-none">{item.description}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                               <span className={cn(
+                                 "text-lg font-black italic",
+                                 item.type === 'Payment' ? "text-green-500" : "text-primary"
+                               )}>
+                                 {item.amount}
+                               </span>
+                               <ArrowRight className="h-3 w-3 opacity-30 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
