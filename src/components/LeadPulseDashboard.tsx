@@ -7,19 +7,16 @@ import {
   CheckCircle2, 
   Search,
   Zap,
-  Globe,
   Loader2,
   Trash2,
   Download,
   Upload,
-  FileText,
   Smartphone,
   Phone,
   AlertCircle,
   Link as LinkIcon,
   History as HistoryIcon,
   Calendar,
-  Filter,
   ArrowRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,6 +39,7 @@ import { useRouter } from "next/navigation";
 import { validateNumber, getUserHistory } from "@/app/actions/backend";
 import { extractAIData } from "@/ai/flows/ai-data-extraction";
 import * as XLSX from 'xlsx';
+import { cn } from "@/lib/utils";
 
 interface ValidationResult {
   id: string;
@@ -59,8 +57,7 @@ interface HistoryItem {
   type: 'Work' | 'Payment';
   description: string;
   amount: string;
-  impact: string;
-  status: string;
+  impact?: string;
 }
 
 export default function LeadPulseDashboard() {
@@ -70,7 +67,6 @@ export default function LeadPulseDashboard() {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<ValidationResult[]>([]);
   const [credits, setCredits] = useState<number>(0);
-  const [isLoadingCredits, setIsLoadingCredits] = useState(true);
   
   // History State
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -98,7 +94,6 @@ export default function LeadPulseDashboard() {
     }
     const user = JSON.parse(userStr);
     setCredits(user.credits || 0);
-    setIsLoadingCredits(false);
     fetchHistory();
   }, [router]);
 
@@ -111,6 +106,7 @@ export default function LeadPulseDashboard() {
     try {
       const result = await getUserHistory({ email: user.email });
       if (result.success) {
+        // Server handles reverse logic as requested
         setHistory(result.history || []);
         setFilteredHistory(result.history || []);
       }
@@ -237,6 +233,7 @@ export default function LeadPulseDashboard() {
             setCredits(result.remainingCredits);
             const updatedUser = { ...user, credits: result.remainingCredits };
             localStorage.setItem('user', JSON.stringify(updatedUser));
+            // Trigger UI element update if needed via dashboard's credit display (handled by parent sync logic or state)
           }
         }
       } catch (error) {
@@ -248,7 +245,7 @@ export default function LeadPulseDashboard() {
 
     setIsProcessing(false);
     processingRef.current = false;
-    fetchHistory(); // Refresh history after work
+    fetchHistory(); // Refresh history after work as requested
   };
 
   const handleStop = () => {
@@ -410,7 +407,7 @@ export default function LeadPulseDashboard() {
                       <TableHeader className="sticky top-0 bg-card/95 backdrop-blur-md z-10">
                         <TableRow className="border-white/5">
                           <TableHead className="text-[10px] font-black uppercase tracking-widest">Number</TableHead>
-                          <TableHead className="text-[10px] font-black uppercase tracking-widest">Type</TableHead>
+                          <TableHead className="text-[10px) font-black uppercase tracking-widest">Type</TableHead>
                           <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
                           <TableHead className="text-[10px] font-black uppercase tracking-widest">Location</TableHead>
                           <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Time</TableHead>
@@ -429,7 +426,10 @@ export default function LeadPulseDashboard() {
                             <TableRow key={res.id} className="border-white/5 hover:bg-primary/5 transition-colors">
                               <TableCell className="font-code font-bold text-primary">{res.number}</TableCell>
                               <TableCell>
-                                <Badge className={`${res.status === 'invalid' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'} border-none text-[9px] font-black uppercase`}>
+                                <Badge className={cn(
+                                  res.status === 'invalid' ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500',
+                                  "border-none text-[9px] font-black uppercase"
+                                )}>
                                   {res.type}
                                 </Badge>
                               </TableCell>
@@ -484,7 +484,7 @@ export default function LeadPulseDashboard() {
                       <TableRow>
                         <TableCell colSpan={4} className="h-64 text-center">
                           <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
-                          <p className="font-black italic uppercase text-xs">Syncing with blockchain...</p>
+                          <p className="font-black italic uppercase text-xs">Syncing with server...</p>
                         </TableCell>
                       </TableRow>
                     ) : filteredHistory.length === 0 ? (

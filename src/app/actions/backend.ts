@@ -2,7 +2,7 @@
 
 /**
  * @fileOverview Server Actions to proxy requests to the Render backend.
- * Synchronized with https://numcheckr.onrender.com
+ * Updated to match the provided server-side API specifications.
  */
 
 const API_BASE = 'https://numcheckr.onrender.com';
@@ -23,6 +23,10 @@ export async function loginUser(payload: { email: string; password?: string }) {
   }
 }
 
+/**
+ * Syncs user profile data.
+ * Expected Response: { success: true, credits: number, historyCount: number }
+ */
 export async function syncUserProfile(email: string) {
   try {
     const response = await fetch(`${API_BASE}/api/user/profile`, {
@@ -37,6 +41,10 @@ export async function syncUserProfile(email: string) {
   }
 }
 
+/**
+ * Fetches user history.
+ * Expected Response: { success: true, history: Array }
+ */
 export async function getUserHistory(payload: { email: string }) {
   try {
     const response = await fetch(`${API_BASE}/api/user/history`, {
@@ -90,15 +98,22 @@ export async function getAdminUsers() {
   }
 }
 
-export async function updateAdminUser(payload: { email: string; credits: number }) {
+/**
+ * Updates user credits from Admin Panel.
+ * Expected Payload: { secret, userId, credits }
+ */
+export async function updateAdminUser(payload: { userId: string; credits: number }) {
   try {
     const response = await fetch(`${API_BASE}/api/admin/update-user`, {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json',
-        'x-admin-secret': ADMIN_SECRET 
+        'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        secret: ADMIN_SECRET,
+        userId: payload.userId,
+        credits: payload.credits
+      }),
     });
     return await response.json();
   } catch (error) {

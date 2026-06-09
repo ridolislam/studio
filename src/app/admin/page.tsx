@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -50,30 +49,18 @@ export default function AdminPanel() {
     try {
       const [statsRes, usersRes] = await Promise.all([getAdminStats(), getAdminUsers()]);
       
-      // Handle Stats Response
       if (statsRes) {
-        if (statsRes.success && statsRes.stats) {
-          setStats(statsRes.stats);
-        } else if (statsRes.stats) {
-          setStats(statsRes.stats);
-        } else if (statsRes.data) {
-          setStats(statsRes.data);
-        }
+        if (statsRes.success && statsRes.stats) setStats(statsRes.stats);
+        else if (statsRes.stats) setStats(statsRes.stats);
+        else if (statsRes.data) setStats(statsRes.data);
       }
 
-      // Handle Users Response - Be flexible with different API formats
       if (usersRes) {
-        if (Array.isArray(usersRes)) {
-          setUsers(usersRes);
-        } else if (usersRes.success && Array.isArray(usersRes.users)) {
-          setUsers(usersRes.users);
-        } else if (usersRes.success && Array.isArray(usersRes.data)) {
-          setUsers(usersRes.data);
-        } else if (Array.isArray(usersRes.data)) {
-          setUsers(usersRes.data);
-        } else if (Array.isArray(usersRes.users)) {
-          setUsers(usersRes.users);
-        }
+        if (Array.isArray(usersRes)) setUsers(usersRes);
+        else if (usersRes.success && Array.isArray(usersRes.users)) setUsers(usersRes.users);
+        else if (usersRes.success && Array.isArray(usersRes.data)) setUsers(usersRes.data);
+        else if (Array.isArray(usersRes.data)) setUsers(usersRes.data);
+        else if (Array.isArray(usersRes.users)) setUsers(usersRes.users);
       }
     } catch (err) {
       console.error("Fetch Error:", err);
@@ -105,14 +92,15 @@ export default function AdminPanel() {
     }
   };
 
-  const handleUpdateCredits = async (email: string, credits: number) => {
-    setIsUpdating(email);
-    const res = await updateAdminUser({ email, credits });
+  const handleUpdateCredits = async (userId: string, credits: number) => {
+    setIsUpdating(userId);
+    // userId should be the internal ID from server (e.g., _id)
+    const res = await updateAdminUser({ userId, credits });
     if (res.success) {
-      toast({ title: "Updated", description: `Credits updated for ${email}` });
+      toast({ title: "Updated", description: `Credits updated for user ID: ${userId}` });
       fetchData();
     } else {
-      toast({ variant: "destructive", title: "Error", description: "Failed to update user." });
+      toast({ variant: "destructive", title: "Error", description: res.message || "Failed to update user." });
     }
     setIsUpdating(null);
   };
@@ -234,13 +222,6 @@ export default function AdminPanel() {
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500/70 mb-2">Server API Hits</p>
                 <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.totalHits || 0}</h3>
               </Card>
-              <Card className="border-green-500/20 bg-green-500/5 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
-                <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                   <DollarSignIcon size={120} />
-                </div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-green-500/70 mb-2">Estimated Revenue</p>
-                <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">${stats?.revenue?.toFixed(2) || 0}</h3>
-              </Card>
             </div>
           </TabsContent>
 
@@ -278,15 +259,15 @@ export default function AdminPanel() {
                         <TableRow>
                           <TableCell colSpan={3} className="h-64 text-center">
                             <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
-                            <p className="font-black italic uppercase text-xs opacity-50">Fetching Server Data...</p>
+                            <p className="font-black italic uppercase text-xs">Fetching Server Data...</p>
                           </TableCell>
                         </TableRow>
                       ) : users.filter(u => u.email.toLowerCase().includes(search.toLowerCase())).map((user) => (
-                        <TableRow key={user.email} className="border-white/5 hover:bg-white/5 h-20 group transition-colors">
+                        <TableRow key={user._id || user.email} className="border-white/5 hover:bg-white/5 h-20 group transition-colors">
                           <TableCell className="px-6 md:px-8">
                             <div className="flex flex-col">
                               <span className="font-black italic text-base md:text-lg truncate max-w-[150px] md:max-w-none">{user.email}</span>
-                              <span className="text-[9px] font-bold text-muted-foreground uppercase">Member</span>
+                              <span className="text-[9px] font-bold text-muted-foreground uppercase">{user._id ? `ID: ${user._id}` : 'Member'}</span>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -294,7 +275,7 @@ export default function AdminPanel() {
                               <Input 
                                 type="number" 
                                 defaultValue={user.credits}
-                                id={`credits-${user.email}`}
+                                id={`credits-${user._id || user.email}`}
                                 className="h-10 md:h-12 bg-black/20 border-white/10 rounded-xl font-bold italic text-primary"
                               />
                               <Zap className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/30" />
@@ -303,13 +284,13 @@ export default function AdminPanel() {
                           <TableCell className="text-right px-6 md:px-8">
                             <Button 
                               className="bg-primary hover:bg-primary/90 rounded-xl h-10 md:h-12 font-black italic px-4 md:px-6 shadow-lg shadow-primary/10 transition-all active:scale-95"
-                              disabled={isUpdating === user.email}
+                              disabled={isUpdating === (user._id || user.email)}
                               onClick={() => {
-                                const input = document.getElementById(`credits-${user.email}`) as HTMLInputElement;
-                                handleUpdateCredits(user.email, parseInt(input.value));
+                                const input = document.getElementById(`credits-${user._id || user.email}`) as HTMLInputElement;
+                                handleUpdateCredits(user._id || user.email, parseInt(input.value));
                               }}
                             >
-                              {isUpdating === user.email ? <Loader2 className="h-4 w-4 md:h-5 md:w-5 animate-spin" /> : "SAVE"}
+                              {isUpdating === (user._id || user.email) ? <Loader2 className="h-4 w-4 md:h-5 md:w-5 animate-spin" /> : "SAVE"}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -349,25 +330,5 @@ export default function AdminPanel() {
         </Tabs>
       </div>
     </div>
-  );
-}
-
-function DollarSignIcon({ size = 24, className = "" }) {
-  return (
-    <svg 
-      xmlns="http://www.w3.org/2000/svg" 
-      width={size} 
-      height={size} 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      className={className}
-    >
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-    </svg>
   );
 }

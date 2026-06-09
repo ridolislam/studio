@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LeadPulseDashboard from "@/components/LeadPulseDashboard";
-import { LogOut, Plus, User, Wallet, ShieldCheck, RefreshCcw, LayoutPanelLeft } from "lucide-react";
+import { LogOut, Plus, User, Wallet, RefreshCcw, LayoutPanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { 
   DropdownMenu, 
@@ -35,7 +35,7 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // Periodic Sync every 60 seconds
+  // Periodic Sync every 60 seconds as requested
   useEffect(() => {
     const interval = setInterval(() => {
       const userStr = localStorage.getItem('user');
@@ -46,13 +46,25 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
+  /**
+   * Syncs user profile and updates localStorage/UI if credits differ.
+   * Matches the provided syncUserCredits logic.
+   */
   const syncProfile = async (email: string) => {
     setIsSyncing(true);
     const res = await syncUserProfile(email);
-    if (res.success && res.user) {
-      const updatedUser = res.user;
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      setUser(updatedUser);
+    if (res && res.success) {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        const userData = JSON.parse(userStr);
+        // Update if server credits differ from local storage
+        if (userData.credits !== res.credits) {
+          const updatedUser = { ...userData, credits: res.credits };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          setUser(updatedUser);
+          console.log("Credits updated from Admin Panel/Server!");
+        }
+      }
     }
     setIsSyncing(false);
   };
@@ -87,7 +99,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase text-muted-foreground leading-none mb-1">Available Credits</span>
-                <span className="text-xl font-black italic leading-none">{user.credits || 0}</span>
+                <span id="creditBalance" className="text-xl font-black italic leading-none">{user.credits || 0}</span>
               </div>
               <Button 
                 variant="ghost" 
@@ -104,7 +116,7 @@ export default function DashboardPage() {
                 <Button variant="ghost" className="h-14 px-4 rounded-xl border border-white/5 hover:bg-primary/5 group">
                    <div className="flex items-center gap-3">
                       <div className="bg-gradient-to-br from-primary to-accent h-10 w-10 rounded-lg flex items-center justify-center text-white font-black shadow-lg">
-                        {user.name?.charAt(0) || <User className="h-5 w-5" />}
+                        {user.name?.charAt(0) || user.email?.charAt(0) || <User className="h-5 w-5" />}
                       </div>
                       <div className="hidden sm:flex flex-col items-start text-left">
                         <span className="text-sm font-black italic">{user.name || "User Account"}</span>
