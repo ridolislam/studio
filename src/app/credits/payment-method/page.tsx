@@ -47,7 +47,7 @@ function PaymentContent() {
   const [paymentData, setPaymentData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Updated rate to match CreditsPage ($0.0008 per credit)
+  // FIXED RATE: $0.0008 per credit (500 credits = $0.40)
   const PRICE_PER_CREDIT = 0.0008; 
   const totalPrice = (credits * PRICE_PER_CREDIT).toFixed(4);
 
