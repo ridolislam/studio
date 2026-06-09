@@ -97,6 +97,10 @@ export default function LeadPulseDashboard() {
     fetchHistory();
   }, [router]);
 
+  /**
+   * Fetches user activity history from server.
+   * Matches the specified history return logic.
+   */
   const fetchHistory = async () => {
     const userStr = localStorage.getItem('user');
     if (!userStr) return;
@@ -106,7 +110,7 @@ export default function LeadPulseDashboard() {
     try {
       const result = await getUserHistory({ email: user.email });
       if (result.success) {
-        // Server handles reverse logic as requested
+        // Server already returns reversed array (latest first)
         setHistory(result.history || []);
         setFilteredHistory(result.history || []);
       }
@@ -233,7 +237,6 @@ export default function LeadPulseDashboard() {
             setCredits(result.remainingCredits);
             const updatedUser = { ...user, credits: result.remainingCredits };
             localStorage.setItem('user', JSON.stringify(updatedUser));
-            // Trigger UI element update if needed via dashboard's credit display (handled by parent sync logic or state)
           }
         }
       } catch (error) {
@@ -245,7 +248,7 @@ export default function LeadPulseDashboard() {
 
     setIsProcessing(false);
     processingRef.current = false;
-    fetchHistory(); // Refresh history after work as requested
+    fetchHistory(); // Refresh activity history after work
   };
 
   const handleStop = () => {
@@ -407,7 +410,7 @@ export default function LeadPulseDashboard() {
                       <TableHeader className="sticky top-0 bg-card/95 backdrop-blur-md z-10">
                         <TableRow className="border-white/5">
                           <TableHead className="text-[10px] font-black uppercase tracking-widest">Number</TableHead>
-                          <TableHead className="text-[10px) font-black uppercase tracking-widest">Type</TableHead>
+                          <TableHead className="text-[10px] font-black uppercase tracking-widest">Type</TableHead>
                           <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
                           <TableHead className="text-[10px] font-black uppercase tracking-widest">Location</TableHead>
                           <TableHead className="text-right text-[10px] font-black uppercase tracking-widest">Time</TableHead>

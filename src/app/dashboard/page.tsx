@@ -35,7 +35,7 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // Periodic Sync every 60 seconds as requested
+  // Real-time Sync Interval every 60 seconds as requested
   useEffect(() => {
     const interval = setInterval(() => {
       const userStr = localStorage.getItem('user');
@@ -47,26 +47,33 @@ export default function DashboardPage() {
   }, []);
 
   /**
-   * Syncs user profile and updates localStorage/UI if credits differ.
-   * Matches the provided syncUserCredits logic.
+   * Syncs user profile data based on server-side logic.
+   * Updates UI and localStorage if server credits differ from local data.
    */
   const syncProfile = async (email: string) => {
     setIsSyncing(true);
-    const res = await syncUserProfile(email);
-    if (res && res.success) {
-      const userStr = localStorage.getItem('user');
-      if (userStr) {
-        const userData = JSON.parse(userStr);
-        // Update if server credits differ from local storage
-        if (userData.credits !== res.credits) {
-          const updatedUser = { ...userData, credits: res.credits };
-          localStorage.setItem('user', JSON.stringify(updatedUser));
-          setUser(updatedUser);
-          console.log("Credits updated from Admin Panel/Server!");
+    try {
+      const res = await syncUserProfile(email);
+      if (res && res.success) {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+          const userData = JSON.parse(userStr);
+          // Only update if server credits differ
+          if (userData.credits !== res.credits) {
+            const updatedUser = { ...userData, credits: res.credits };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            setUser(updatedUser);
+            
+            // Log as requested in specifications
+            console.log("Credits updated from Admin Panel!");
+          }
         }
       }
+    } catch (err) {
+      console.log("Sync failed.");
+    } finally {
+      setIsSyncing(false);
     }
-    setIsSyncing(false);
   };
 
   const handleLogout = () => {

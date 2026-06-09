@@ -2,7 +2,7 @@
 
 /**
  * @fileOverview Server Actions to proxy requests to the Render backend.
- * Updated to match the provided server-side API specifications.
+ * Synchronized with the specified server-side logic.
  */
 
 const API_BASE = 'https://numcheckr.onrender.com';
@@ -24,7 +24,7 @@ export async function loginUser(payload: { email: string; password?: string }) {
 }
 
 /**
- * Syncs user profile data.
+ * Syncs user profile data based on server logic.
  * Expected Response: { success: true, credits: number, historyCount: number }
  */
 export async function syncUserProfile(email: string) {
@@ -43,7 +43,7 @@ export async function syncUserProfile(email: string) {
 
 /**
  * Fetches user history.
- * Expected Response: { success: true, history: Array }
+ * Expected Response: { success: true, history: Array } (Reversed by server)
  */
 export async function getUserHistory(payload: { email: string }) {
   try {
@@ -99,7 +99,7 @@ export async function getAdminUsers() {
 }
 
 /**
- * Updates user credits from Admin Panel.
+ * Updates user credits from Admin Panel using the specified payload.
  * Expected Payload: { secret, userId, credits }
  */
 export async function updateAdminUser(payload: { userId: string; credits: number }) {
