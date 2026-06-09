@@ -8,6 +8,34 @@
 const API_BASE = 'https://numcheckr.onrender.com';
 const ADMIN_SECRET = 'Ridol123@';
 
+/**
+ * Safely parse JSON from a response, handling non-JSON error pages gracefully.
+ */
+async function safeJson(response: Response) {
+  try {
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return await response.json();
+    }
+    
+    // If not JSON, it might be an HTML error from the server (e.g. 503 Waking Up)
+    const text = await response.text();
+    if (text.toLowerCase().includes('waking up') || text.toLowerCase().includes('starting')) {
+      return { 
+        success: false, 
+        message: "Server is waking up from sleep mode. Please try again in 30-45 seconds." 
+      };
+    }
+    
+    return { 
+      success: false, 
+      message: `Unexpected server response: ${response.status} ${response.statusText}` 
+    };
+  } catch (err) {
+    return { success: false, message: "Failed to read response from server." };
+  }
+}
+
 // User APIs
 export async function loginUser(payload: { email: string; password?: string }) {
   try {
@@ -17,9 +45,9 @@ export async function loginUser(payload: { email: string; password?: string }) {
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
-    return { success: false, message: 'Connection failed to backend.' };
+    return { success: false, message: 'Connection failed to backend. Please check your internet or server status.' };
   }
 }
 
@@ -35,7 +63,7 @@ export async function syncUserProfile(email: string) {
       body: JSON.stringify({ email }),
       cache: 'no-store',
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
     return { success: false };
   }
@@ -53,9 +81,9 @@ export async function getUserHistory(payload: { email: string }) {
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
-    return { success: false, message: 'Connection failed' };
+    return { success: false, message: 'Connection failed to fetch history' };
   }
 }
 
@@ -67,7 +95,7 @@ export async function validateNumber(payload: { email: string; number: string })
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
     return { success: false, message: 'Validation connection failed' };
   }
@@ -83,7 +111,7 @@ export async function getAdminStats() {
       },
       cache: 'no-store',
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
     return { success: false };
   }
@@ -98,15 +126,15 @@ export async function getAdminUsers() {
       },
       cache: 'no-store',
     });
-    return await response.json();
+    const result = await safeJson(response);
+    return Array.isArray(result) ? result : (result.users || result.data || []);
   } catch (error) {
-    return { success: false };
+    return [];
   }
 }
 
 /**
  * Updates user credits from Admin Panel.
- * Expected Payload: { secret, userId, credits }
  */
 export async function updateAdminUser(payload: { userId: string; credits: number }) {
   try {
@@ -121,7 +149,7 @@ export async function updateAdminUser(payload: { userId: string; credits: number
         credits: payload.credits
       }),
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
     return { success: false };
   }
@@ -129,7 +157,6 @@ export async function updateAdminUser(payload: { userId: string; credits: number
 
 /**
  * Uploads API keys from Admin Panel.
- * Expected Payload: { keys: string[], secret: string }
  */
 export async function uploadAdminKeys(payload: { keys: string[] }) {
   try {
@@ -141,7 +168,7 @@ export async function uploadAdminKeys(payload: { keys: string[] }) {
         secret: ADMIN_SECRET
       }),
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
     return { success: false };
   }
@@ -157,7 +184,7 @@ export async function clearAdminKeys() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ secret: ADMIN_SECRET }),
     });
-    return await response.json();
+    return await safeJson(response);
   } catch (error) {
     return { success: false, message: "Server connection failed" };
   }
