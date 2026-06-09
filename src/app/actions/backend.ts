@@ -63,3 +63,30 @@ export async function validateNumber(payload: { email: string; number: string })
     return { success: false, message: 'Connection lost. Check backend status.' };
   }
 }
+
+export async function createPayment(payload: { email: string; credits: number }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/create-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return { 
+        success: false, 
+        message: 'Backend server is waking up. Please try again in 45 seconds.' 
+      };
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Payment Action Error:', error);
+    return { 
+      success: false, 
+      message: 'Unable to connect to crypto gateway. Check server status.' 
+    };
+  }
+}

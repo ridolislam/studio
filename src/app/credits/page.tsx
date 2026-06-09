@@ -9,8 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import Logo from "@/components/Logo";
-
-const API_BASE = 'https://numcheckr.onrender.com';
+import { createPayment } from "@/app/actions/backend";
 
 export default function CreditsPage() {
   const { toast } = useToast();
@@ -51,24 +50,16 @@ export default function CreditsPage() {
     
     setIsPurchasing(true);
     try {
-      const response = await fetch(`${API_BASE}/api/user/create-payment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: user.email,
-          credits: creditAmount
-        }),
+      const result = await createPayment({
+        email: user.email,
+        credits: creditAmount
       });
 
-      const data = await response.json();
-
-      if (data.success && data.invoice_url) {
+      if (result.success && result.invoice_url) {
         toast({ title: "Redirecting...", description: "Opening secure crypto payment gateway." });
-        window.location.href = data.invoice_url;
+        window.location.href = result.invoice_url;
       } else {
-        throw new Error(data.message || "Failed to generate payment invoice");
+        throw new Error(result.message || "Failed to generate payment invoice");
       }
       
     } catch (error: any) {
