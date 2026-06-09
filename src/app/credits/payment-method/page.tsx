@@ -47,8 +47,9 @@ function PaymentContent() {
   const [paymentData, setPaymentData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const PRICE_PER_CREDIT = 0.005; // $0.005 per credit
-  const totalPrice = (credits * PRICE_PER_CREDIT).toFixed(2);
+  // Updated rate to match CreditsPage ($0.0008 per credit)
+  const PRICE_PER_CREDIT = 0.0008; 
+  const totalPrice = (credits * PRICE_PER_CREDIT).toFixed(4);
 
   useEffect(() => {
     const userData = localStorage.getItem('user');
@@ -121,7 +122,6 @@ function PaymentContent() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Summary Card */}
         <div className="lg:col-span-4 space-y-6">
           <Card className="sticky top-24 border-white/10 bg-card/60 backdrop-blur-2xl shadow-2xl overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
@@ -195,7 +195,6 @@ function PaymentContent() {
           </Card>
         </div>
 
-        {/* Right Column: Grid or Success Section */}
         <div className="lg:col-span-8">
           {paymentData ? (
             <Card className="border-green-500/20 bg-green-500/5 backdrop-blur-xl shadow-2xl animate-in fade-in zoom-in-95 duration-500">
@@ -244,7 +243,14 @@ function PaymentContent() {
                     <div className="relative">
                       <div className="absolute -inset-4 bg-primary/20 blur-2xl rounded-full"></div>
                       <div className="relative bg-white p-4 rounded-3xl border-8 border-white shadow-2xl">
-                        <img src={paymentData.qrcode} alt="QR Code" className="w-48 h-48 md:w-64 md:h-64" />
+                        {paymentData.qrcode && (
+                           <img 
+                            src={paymentData.qrcode} 
+                            alt="QR Code" 
+                            className="w-48 h-48 md:w-64 md:h-64"
+                            style={{ display: 'block' }}
+                           />
+                        )}
                       </div>
                     </div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
