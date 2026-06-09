@@ -20,7 +20,6 @@ export default function CreditsPage() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
-  // Rate: $0.0008 per credit
   const RATE_PER_CREDIT = 0.0008; 
   const totalPrice = (creditAmount * RATE_PER_CREDIT).toFixed(4);
 
@@ -29,7 +28,6 @@ export default function CreditsPage() {
   }, []);
 
   const handlePurchase = async () => {
-    // ১. লোকাল স্টোরেজ থেকে ইউজারের ইমেইল নিন
     const userData = localStorage.getItem('user');
     if (!userData) {
       toast({ 
@@ -42,7 +40,6 @@ export default function CreditsPage() {
     }
     const user = JSON.parse(userData);
 
-    // ২. ভ্যালিডেশন (কমপক্ষে ১০০ ক্রেডিট)
     if (creditAmount < 100) {
       toast({ 
         variant: "destructive", 
@@ -54,7 +51,6 @@ export default function CreditsPage() {
     
     setIsPurchasing(true);
     try {
-      // ৩. রেন্ডার ব্যাকএন্ডে রিকোয়েস্ট পাঠানো
       const response = await fetch(`${API_BASE}/api/user/create-payment`, {
         method: 'POST',
         headers: {
@@ -68,7 +64,6 @@ export default function CreditsPage() {
 
       const data = await response.json();
 
-      // ৪. সাকসেস হলে পেমেন্ট গেটওয়েতে রিডাইরেক্ট করা
       if (data.success && data.invoice_url) {
         toast({ title: "Redirecting...", description: "Opening secure crypto payment gateway." });
         window.location.href = data.invoice_url;
@@ -110,31 +105,30 @@ export default function CreditsPage() {
 
         <div className="text-center space-y-4">
           <div className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/20 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-green-500">
-            <ShieldCheck className="h-3 w-3" /> Anonymous Payments (No ID Card Required)
+            <ShieldCheck className="h-3 w-3" /> Anonymous Payments (No KYC)
           </div>
           <h1 className="text-5xl md:text-7xl font-black italic text-3d tracking-tighter uppercase leading-none">
-            Get More <span className="text-primary">Credits</span>
+            Add <span className="text-primary">Credits</span>
           </h1>
           <p className="text-muted-foreground font-medium text-lg max-w-xl mx-auto">
-            Pay anonymously with 50+ cryptocurrencies. No KYC or ID card needed.
+            Secure your lead validation with anonymous crypto payments.
           </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-          <Card className="lg:col-span-2 border-primary/20 bg-card shadow-[0_20px_50px_rgba(0,0,0,0.4)] relative overflow-hidden">
+          <Card className="lg:col-span-2 border-primary/20 bg-card shadow-2xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-accent to-primary"></div>
             <CardHeader className="pt-8 px-8">
               <CardTitle className="text-2xl font-black italic flex items-center gap-2">
                 <Calculator className="h-6 w-6 text-primary" />
-                Select Credits
+                Calculator
               </CardTitle>
-              <CardDescription>Enter quantity or use the slider</CardDescription>
             </CardHeader>
             <CardContent className="space-y-10 p-8">
               <div className="space-y-8">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                   <div className="w-full md:flex-1 space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest opacity-70">Credits to buy</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest opacity-70">Quantity</label>
                     <div className="relative group">
                       <Input 
                         type="number"
@@ -146,7 +140,7 @@ export default function CreditsPage() {
                     </div>
                   </div>
                   <div className="text-left md:text-right space-y-1 bg-primary/5 p-4 rounded-2xl border border-primary/10 min-w-[220px]">
-                    <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Cost (USD)</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Price (USD)</p>
                     <div className="flex items-baseline justify-start md:justify-end gap-1">
                       <span className="text-5xl font-black text-foreground italic">${totalPrice}</span>
                       <span className="text-xs font-bold text-muted-foreground uppercase">USD</span>
@@ -164,7 +158,7 @@ export default function CreditsPage() {
                   />
                   <div className="flex justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                     <span>Min 100</span>
-                    <span className="text-primary/70">Flexible Control</span>
+                    <span className="text-primary/70">Control slider</span>
                     <span>Max 100k</span>
                   </div>
                 </div>
@@ -191,16 +185,15 @@ export default function CreditsPage() {
           <div className="space-y-6">
             <Card className="border-white/5 bg-card/60 shadow-xl backdrop-blur-md">
               <CardHeader>
-                <CardTitle className="text-xl font-black italic">Anonymous Crypto</CardTitle>
+                <CardTitle className="text-xl font-black italic">Instant Crypto</CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
                 {[
-                  "No ID Card / KYC Required",
-                  "Direct Wallet Settlement",
-                  "Ultra Low Fees",
-                  "Support for USDT, BTC, LTC, etc.",
-                  "Instant Activation",
-                  "Secure & Private"
+                  "No ID Verification Required",
+                  "Direct Crypto Wallet",
+                  "Support 50+ Coins",
+                  "Instant Credit Activation",
+                  "Private & Secure"
                 ].map((feat, i) => (
                   <div key={i} className="flex items-center gap-3">
                     <div className="h-6 w-6 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
@@ -215,14 +208,10 @@ export default function CreditsPage() {
             <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10 space-y-4">
               <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">নির্দেশনা</h4>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                ১. আপনার প্রয়োজনীয় ক্রেডিট সিলেক্ট করুন।<br/>
-                ২. <strong>PAY WITH CRYPTO</strong> এ ক্লিক করুন।<br/>
-                ৩. কোনো রেজিস্টেশন বা আইডি কার্ড ছাড়াই আপনার পছন্দের কয়েন দিয়ে পেমেন্ট করুন।<br/>
-                ৪. পেমেন্ট শেষে অটোমেটিক ড্যাশবোর্ডে ক্রেডিট যোগ হবে।
+                ১. ক্রেডিট সিলেক্ট করে <strong>PAY WITH CRYPTO</strong> এ ক্লিক করুন।<br/>
+                ২. কোনো আইডি কার্ড ছাড়াই পেমেন্ট সম্পন্ন করুন।<br/>
+                ৩. পেমেন্ট শেষে অটোমেটিক আপনার ব্যালেন্স আপডেট হবে।
               </p>
-              <div className="text-[9px] font-bold text-primary flex items-center gap-1">
-                Secure Payment Gateway <ExternalLink className="h-2 w-2" />
-              </div>
             </div>
           </div>
         </div>
