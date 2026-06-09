@@ -264,13 +264,23 @@ export default function LeadPulseDashboard() {
       } catch(e) {}
     }
 
-    if (currentCredits < lines.length) {
+    if (currentCredits <= 0) {
       toast({ 
         variant: "destructive", 
         title: "Insufficient Credits", 
-        description: `You need ${lines.length} credits, but only have ${currentCredits}. Please top up.` 
+        description: `You have 0 credits. Please top up to validate numbers.` 
       });
       return;
+    }
+
+    // Determine how many numbers we can process based on credits
+    const processLimit = Math.min(lines.length, currentCredits);
+    
+    if (processLimit < lines.length) {
+      toast({
+        title: "Partial Processing",
+        description: `You have ${currentCredits} credits. Validating the first ${processLimit} numbers.`
+      });
     }
 
     setIsProcessing(true);
@@ -283,7 +293,7 @@ export default function LeadPulseDashboard() {
       const formattedUser = user.data || user.user || user;
       if (!formattedUser) return;
 
-      for (let i = 0; i < lines.length; i++) {
+      for (let i = 0; i < processLimit; i++) {
         if (!processingRef.current) break;
 
         try {
@@ -324,13 +334,19 @@ export default function LeadPulseDashboard() {
               
               const creditDisplay = document.getElementById('creditBalance');
               if (creditDisplay) creditDisplay.innerText = newRemCredits.toString();
+              
+              // If we ran out of credits during processing (unlikely but safe)
+              if (newRemCredits <= 0) {
+                toast({ variant: "destructive", title: "Credits Exhausted", description: "Stopping process as credits are finished." });
+                break;
+              }
             }
           }
         } catch (error) {
           console.error(`Error validating ${lines[i]}`, error);
         }
 
-        setProgress(Math.round(((i + 1) / lines.length) * 100));
+        setProgress(Math.round(((i + 1) / processLimit) * 100));
       }
     } catch (e) {}
 
@@ -637,3 +653,4 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
+
