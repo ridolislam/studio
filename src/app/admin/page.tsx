@@ -13,7 +13,8 @@ import {
   ArrowLeft,
   ShieldAlert,
   Unlock,
-  Zap
+  Zap,
+  Terminal
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
-import { getAdminStats, getAdminUsers, updateAdminUser } from "@/app/actions/backend";
+import { getAdminStats, getAdminUsers, updateAdminUser, uploadAdminKeys } from "@/app/actions/backend";
 import * as XLSX from 'xlsx';
 import Logo from "@/components/Logo";
 
@@ -34,6 +35,10 @@ export default function AdminPanel() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>([
+    "[SYSTEM] Admin Panel Connected.",
+    "[SYSTEM] Waiting for server logs..."
+  ]);
   const [isMounted, setIsMounted] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
@@ -50,20 +55,16 @@ export default function AdminPanel() {
       const [statsRes, usersRes] = await Promise.all([getAdminStats(), getAdminUsers()]);
       
       if (statsRes) {
-        if (statsRes.success && statsRes.stats) setStats(statsRes.stats);
-        else if (statsRes.stats) setStats(statsRes.stats);
-        else if (statsRes.data) setStats(statsRes.data);
+        setStats(statsRes);
       }
 
       if (usersRes) {
-        if (Array.isArray(usersRes)) setUsers(usersRes);
-        else if (usersRes.success && Array.isArray(usersRes.users)) setUsers(usersRes.users);
-        else if (usersRes.success && Array.isArray(usersRes.data)) setUsers(usersRes.data);
-        else if (Array.isArray(usersRes.data)) setUsers(usersRes.data);
-        else if (Array.isArray(usersRes.users)) setUsers(usersRes.users);
+        setUsers(Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []));
       }
+      
+      addLog(`[SYSTEM] Sync completed. Found ${users.length} users.`);
     } catch (err) {
-      console.error("Fetch Error:", err);
+      addLog("[ERROR] Failed to connect to admin API.");
       toast({ 
         variant: "destructive", 
         title: "Sync Error", 
@@ -72,6 +73,10 @@ export default function AdminPanel() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const addLog = (msg: string) => {
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 20));
   };
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -92,12 +97,15 @@ export default function AdminPanel() {
     }
   };
 
-  const handleUpdateCredits = async (userId: string, credits: number) => {
+  const handleUpdateCredits = async (userId: string, currentCredits: number) => {
+    const newCredits = prompt("Enter new credit amount:", currentCredits.toString());
+    if (newCredits === null) return;
+    
     setIsUpdating(userId);
-    // userId should be the internal ID from server (e.g., _id)
-    const res = await updateAdminUser({ userId, credits });
+    const res = await updateAdminUser({ userId, credits: parseInt(newCredits) });
     if (res.success) {
-      toast({ title: "Updated", description: `Credits updated for user ID: ${userId}` });
+      addLog(`[USER] Updated credits for ${userId} to ${newCredits}`);
+      toast({ title: "Updated", description: "Credit Updated Successfully" });
       fetchData();
     } else {
       toast({ variant: "destructive", title: "Error", description: res.message || "Failed to update user." });
@@ -110,11 +118,34 @@ export default function AdminPanel() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const workbook = XLSX.read(event.target?.result, { type: 'binary' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(sheet);
-      toast({ title: "File Loaded", description: `Parsed ${data.length} records. Ready for upload.` });
+    reader.onload = async (event) => {
+      try {
+        const workbook = XLSX.read(event.target?.result, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const rows: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+        
+        const keys = rows
+          .map(r => String(r[0]).trim())
+          .filter(k => k.length > 15);
+        
+        if (keys.length === 0) {
+          toast({ variant: "destructive", title: "Invalid File", description: "No valid keys found." });
+          return;
+        }
+
+        addLog(`[SYSTEM] Uploading ${keys.length} API keys...`);
+        const res = await uploadAdminKeys({ keys });
+        
+        if (res.success) {
+          addLog(`[SYSTEM] Keys uploaded: ${res.message}`);
+          toast({ title: "Success", description: res.message });
+          fetchData();
+        } else {
+          toast({ variant: "destructive", title: "Upload Failed", description: res.message });
+        }
+      } catch (err) {
+        toast({ variant: "destructive", title: "Error", description: "Failed to parse Excel file." });
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -194,35 +225,59 @@ export default function AdminPanel() {
         </div>
 
         <Tabs defaultValue="dashboard" className="w-full">
-          <TabsList className="grid w-full md:w-[600px] grid-cols-3 bg-card/60 border border-white/5 p-1 rounded-2xl h-14 md:h-16 mb-8">
+          <TabsList className="grid w-full md:w-[600px] grid-cols-2 bg-card/60 border border-white/5 p-1 rounded-2xl h-14 md:h-16 mb-8">
             <TabsTrigger value="dashboard" className="rounded-xl font-black italic uppercase text-[10px] md:text-xs h-full data-[state=active]:bg-primary">
-              <LayoutDashboard className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">Stats</span>
+              <LayoutDashboard className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">Dashboard</span>
             </TabsTrigger>
             <TabsTrigger value="users" className="rounded-xl font-black italic uppercase text-[10px] md:text-xs h-full data-[state=active]:bg-primary">
-              <Users className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">Users</span>
-            </TabsTrigger>
-            <TabsTrigger value="apikeys" className="rounded-xl font-black italic uppercase text-[10px] md:text-xs h-full data-[state=active]:bg-primary">
-              <Key className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">API Keys</span>
+              <Users className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">User Management</span>
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card className="border-primary/20 bg-primary/5 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
                 <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <Users size={120} />
+                  <Key size={120} />
                 </div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/70 mb-2">Total System Users</p>
-                <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{users.length}</h3>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/70 mb-2">Active API Keys</p>
+                <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.totalKeys || 0}</h3>
               </Card>
               <Card className="border-blue-500/20 bg-blue-500/5 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
                 <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
                   <Zap size={120} />
                 </div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500/70 mb-2">Server API Hits</p>
-                <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.totalHits || 0}</h3>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500/70 mb-2">Remaining Hits</p>
+                <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.remainingHits || 0}</h3>
               </Card>
             </div>
+
+            <Card className="border-white/5 bg-card/40 backdrop-blur-xl p-8 rounded-3xl shadow-2xl relative overflow-hidden group">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
+              <h3 className="text-xl font-black italic mb-4">Upload API Keys (Excel)</h3>
+              <div className="flex flex-col space-y-4">
+                <Input 
+                  type="file" 
+                  id="excelFile" 
+                  onChange={handleExcelUpload} 
+                  className="bg-black/20 border-white/10 rounded-xl h-12 py-2" 
+                  accept=".xlsx,.xls" 
+                />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Select an .xlsx or .xls file containing keys in the first column.</p>
+              </div>
+            </Card>
+
+            <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden">
+               <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
+                 <Terminal className="h-4 w-4 text-primary" />
+                 <span className="text-[10px] font-black uppercase tracking-widest">Live Server Logs</span>
+               </div>
+               <div className="p-4 h-40 overflow-y-auto font-code text-[11px] space-y-1 text-green-400">
+                 {logs.map((log, i) => (
+                   <div key={i}>{log}</div>
+                 ))}
+               </div>
+            </Card>
           </TabsContent>
 
           <TabsContent value="users" className="space-y-6">
@@ -237,12 +292,9 @@ export default function AdminPanel() {
                     className="pl-12 h-14 bg-black/20 border-white/10 rounded-2xl font-bold italic"
                   />
                 </div>
-                <div className="flex items-center gap-4">
-                   <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                   <span className="text-[10px] font-black uppercase tracking-widest opacity-60">
-                     {loading ? "Syncing..." : "Connected"}
-                   </span>
-                </div>
+                <Button onClick={fetchData} className="rounded-xl h-14 bg-primary px-8 font-black italic">
+                  REFRESH LIST
+                </Button>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -251,13 +303,14 @@ export default function AdminPanel() {
                       <TableRow className="border-white/5 bg-muted/10 h-16">
                         <TableHead className="px-6 md:px-8 uppercase text-[10px] font-black tracking-[0.2em]">User Email</TableHead>
                         <TableHead className="uppercase text-[10px] font-black tracking-[0.2em]">Credits Balance</TableHead>
+                        <TableHead className="uppercase text-[10px] font-black tracking-[0.2em]">Activity</TableHead>
                         <TableHead className="uppercase text-[10px] font-black tracking-[0.2em] text-right px-6 md:px-8">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {loading && users.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={3} className="h-64 text-center">
+                          <TableCell colSpan={4} className="h-64 text-center">
                             <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
                             <p className="font-black italic uppercase text-xs">Fetching Server Data...</p>
                           </TableCell>
@@ -265,66 +318,29 @@ export default function AdminPanel() {
                       ) : users.filter(u => u.email.toLowerCase().includes(search.toLowerCase())).map((user) => (
                         <TableRow key={user._id || user.email} className="border-white/5 hover:bg-white/5 h-20 group transition-colors">
                           <TableCell className="px-6 md:px-8">
-                            <div className="flex flex-col">
-                              <span className="font-black italic text-base md:text-lg truncate max-w-[150px] md:max-w-none">{user.email}</span>
-                              <span className="text-[9px] font-bold text-muted-foreground uppercase">{user._id ? `ID: ${user._id}` : 'Member'}</span>
-                            </div>
+                            <span className="font-black italic text-base md:text-lg">{user.email}</span>
                           </TableCell>
                           <TableCell>
-                            <div className="relative w-24 md:w-32">
-                              <Input 
-                                type="number" 
-                                defaultValue={user.credits}
-                                id={`credits-${user._id || user.email}`}
-                                className="h-10 md:h-12 bg-black/20 border-white/10 rounded-xl font-bold italic text-primary"
-                              />
-                              <Zap className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/30" />
-                            </div>
+                            <span className="font-black italic text-lg text-primary">{user.credits}</span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs font-bold text-muted-foreground uppercase">{user.history?.length || 0} events</span>
                           </TableCell>
                           <TableCell className="text-right px-6 md:px-8">
                             <Button 
                               className="bg-primary hover:bg-primary/90 rounded-xl h-10 md:h-12 font-black italic px-4 md:px-6 shadow-lg shadow-primary/10 transition-all active:scale-95"
                               disabled={isUpdating === (user._id || user.email)}
-                              onClick={() => {
-                                const input = document.getElementById(`credits-${user._id || user.email}`) as HTMLInputElement;
-                                handleUpdateCredits(user._id || user.email, parseInt(input.value));
-                              }}
+                              onClick={() => handleUpdateCredits(user._id || user.email, user.credits)}
                             >
-                              {isUpdating === (user._id || user.email) ? <Loader2 className="h-4 w-4 md:h-5 md:w-5 animate-spin" /> : "SAVE"}
+                              {isUpdating === (user._id || user.email) ? <Loader2 className="h-4 w-4 animate-spin" /> : "EDIT"}
                             </Button>
                           </TableCell>
                         </TableRow>
                       ))}
-                      {users.length === 0 && !loading && (
-                        <TableRow>
-                          <TableCell colSpan={3} className="h-64 text-center">
-                            <Users className="h-12 w-12 text-muted-foreground/20 mx-auto mb-4" />
-                            <p className="font-black italic uppercase text-muted-foreground/40">No users found on server</p>
-                          </TableCell>
-                        </TableRow>
-                      )}
                     </TableBody>
                   </Table>
                 </div>
               </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="apikeys" className="mt-8">
-            <Card className="border-dashed border-primary/30 bg-primary/5 p-8 md:p-16 text-center rounded-[2rem] md:rounded-[3rem] shadow-inner relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none"></div>
-              <Upload className="h-12 w-12 md:h-16 md:w-16 text-primary mx-auto mb-6 opacity-40 group-hover:scale-110 transition-transform duration-500" />
-              <h3 className="text-2xl md:text-4xl font-black italic mb-4 tracking-tighter">Bulk Key Injection</h3>
-              <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-widest md:tracking-[0.1em] mb-8 md:mb-10 max-w-sm md:max-w-md mx-auto leading-relaxed">
-                Upload encrypted Excel datasets (.xlsx) to update the system API pool automatically.
-              </p>
-              <input type="file" id="excelFile" onChange={handleExcelUpload} className="hidden" accept=".xlsx,.csv" />
-              <Button 
-                onClick={() => document.getElementById('excelFile')?.click()} 
-                className="h-14 md:h-16 px-8 md:px-12 bg-primary hover:bg-primary/90 rounded-2xl font-black italic text-base md:text-lg shadow-xl shadow-primary/20 transition-all hover:-translate-y-1 active:scale-95 w-full md:w-auto"
-              >
-                SELECT EXCEL FILE
-              </Button>
             </Card>
           </TabsContent>
         </Tabs>

@@ -2,7 +2,7 @@
 
 /**
  * @fileOverview Server Actions to proxy requests to the Render backend.
- * Synchronized with the specified server-side logic.
+ * Synchronized with the specified Node.js server-side logic.
  */
 
 const API_BASE = 'https://numcheckr.onrender.com';
@@ -77,7 +77,10 @@ export async function validateNumber(payload: { email: string; number: string })
 export async function getAdminStats() {
   try {
     const response = await fetch(`${API_BASE}/api/admin/stats`, {
-      headers: { 'x-admin-secret': ADMIN_SECRET },
+      headers: { 
+        'admin-secret': ADMIN_SECRET,
+        'Cache-Control': 'no-cache'
+      },
       cache: 'no-store',
     });
     return await response.json();
@@ -89,7 +92,10 @@ export async function getAdminStats() {
 export async function getAdminUsers() {
   try {
     const response = await fetch(`${API_BASE}/api/admin/users`, {
-      headers: { 'x-admin-secret': ADMIN_SECRET },
+      headers: { 
+        'admin-secret': ADMIN_SECRET,
+        'Cache-Control': 'no-cache'
+      },
       cache: 'no-store',
     });
     return await response.json();
@@ -99,7 +105,7 @@ export async function getAdminUsers() {
 }
 
 /**
- * Updates user credits from Admin Panel using the specified payload.
+ * Updates user credits from Admin Panel.
  * Expected Payload: { secret, userId, credits }
  */
 export async function updateAdminUser(payload: { userId: string; credits: number }) {
@@ -113,6 +119,26 @@ export async function updateAdminUser(payload: { userId: string; credits: number
         secret: ADMIN_SECRET,
         userId: payload.userId,
         credits: payload.credits
+      }),
+    });
+    return await response.json();
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+/**
+ * Uploads API keys from Admin Panel.
+ * Expected Payload: { keys: string[], secret: string }
+ */
+export async function uploadAdminKeys(payload: { keys: string[] }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/upload-keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        keys: payload.keys,
+        secret: ADMIN_SECRET
       }),
     });
     return await response.json();

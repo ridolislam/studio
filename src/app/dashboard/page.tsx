@@ -35,7 +35,7 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // Real-time Sync Interval every 60 seconds as requested
+  // Real-time Sync Interval every 60 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       const userStr = localStorage.getItem('user');
@@ -64,8 +64,12 @@ export default function DashboardPage() {
             localStorage.setItem('user', JSON.stringify(updatedUser));
             setUser(updatedUser);
             
-            // Log as requested in specifications
+            // Log for verification
             console.log("Credits updated from Admin Panel!");
+            
+            // Update UI element if exists
+            const creditElement = document.getElementById('creditBalance');
+            if (creditElement) creditElement.innerText = res.credits.toString();
           }
         }
       }

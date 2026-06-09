@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
@@ -47,7 +46,7 @@ function PaymentContent() {
   const [paymentData, setPaymentData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // FIXED RATE: $0.0008 per credit (500 credits = $0.40)
+  // FIXED RATE: $0.0008 per credit as specified
   const PRICE_PER_CREDIT = 0.0008; 
   const totalPrice = (credits * PRICE_PER_CREDIT).toFixed(4);
 
@@ -62,11 +61,7 @@ function PaymentContent() {
 
   const handlePayNow = async () => {
     if (!selectedCoin) return;
-    if (credits < 400) {
-      toast({ variant: "destructive", title: "Minimum Requirement", description: "কমপক্ষে ৪০০ ক্রেডিট কিনতে হবে!" });
-      return;
-    }
-
+    
     setIsGenerating(true);
     setErrorMsg(null);
     
@@ -85,7 +80,7 @@ function PaymentContent() {
       
       if (data.success) {
         setPaymentData(data);
-        toast({ title: "Invoice Generated", description: "পেমেন্ট অ্যাড্রেস তৈরি হয়েছে।" });
+        toast({ title: "Invoice Generated", description: "Payment address ready." });
       } else {
         setErrorMsg(`Gateway Error: ${data.message || "Failed to connect"}`);
       }
@@ -98,7 +93,7 @@ function PaymentContent() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copied!", description: "অ্যাড্রেস কপি করা হয়েছে।" });
+    toast({ title: "Copied!", description: "Address copied to clipboard." });
   };
 
   if (!user) return null;
@@ -111,7 +106,7 @@ function PaymentContent() {
           className="rounded-xl border border-white/5 bg-card/40 backdrop-blur-sm hover:bg-white/10"
           onClick={() => router.push("/credits")}
         >
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Credits
         </Button>
         <div className="flex items-center gap-3">
           <Logo size={48} />
@@ -184,7 +179,7 @@ function PaymentContent() {
                   </div>
                   <Button 
                     onClick={handlePayNow}
-                    disabled={isGenerating || credits < 400}
+                    disabled={isGenerating}
                     className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black italic rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
                   >
                     {isGenerating ? <Loader2 className="animate-spin" /> : "PAY NOW"}
