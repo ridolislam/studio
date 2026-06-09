@@ -46,24 +46,33 @@ export default function LoginPage() {
       const result = await loginUser({ email, password });
 
       if (result.success) {
-        // Save user data
-        localStorage.setItem('user', JSON.stringify(result.data));
+        // Extract user data reliably (handling result.data, result.user or the result object itself)
+        const userData = result.data || result.user || result;
+        
+        // Save user data to localStorage
+        localStorage.setItem('user', JSON.stringify(userData));
+        
         toast({
           title: "Logged in successfully",
           description: "Welcome back!",
         });
-        router.push("/dashboard");
+
+        // Use a slight delay and a hard redirect for better storage sync
+        setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 500);
       } else {
-        if (result.message.includes('waking up')) {
+        const msg = result.message || "Invalid credentials";
+        if (msg.toLowerCase().includes('waking up')) {
           setIsWakingUp(true);
         }
-        throw new Error(result.message);
+        throw new Error(msg);
       }
     } catch (error: any) {
       toast({
         variant: "destructive",
         title: "Login failed",
-        description: error.message,
+        description: error.message || "Failed to connect to backend",
       });
     } finally {
       setIsLoading(false);

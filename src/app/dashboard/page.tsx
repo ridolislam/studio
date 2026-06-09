@@ -27,15 +27,20 @@ export default function DashboardPage() {
   useEffect(() => {
     setIsMounted(true);
     const userStr = localStorage.getItem('user');
+    
     if (!userStr) {
       router.push("/login");
     } else {
       try {
         const currentUser = JSON.parse(userStr);
-        if (currentUser && currentUser.email) {
-          setUser(currentUser);
-          syncProfile(currentUser.email);
+        // Standardize the user object in case it was saved under different keys
+        const formattedUser = currentUser.data || currentUser.user || currentUser;
+        
+        if (formattedUser && formattedUser.email) {
+          setUser(formattedUser);
+          syncProfile(formattedUser.email);
         } else {
+          localStorage.removeItem('user');
           router.push("/login");
         }
       } catch (e) {
@@ -52,8 +57,9 @@ export default function DashboardPage() {
       if (userStr) {
         try {
           const parsed = JSON.parse(userStr);
-          if (parsed && parsed.email) {
-            syncProfile(parsed.email);
+          const formattedUser = parsed.data || parsed.user || parsed;
+          if (formattedUser && formattedUser.email) {
+            syncProfile(formattedUser.email);
           }
         } catch (e) {}
       }
@@ -75,8 +81,10 @@ export default function DashboardPage() {
         if (userStr) {
           try {
             const userData = JSON.parse(userStr);
-            if (userData && userData.credits !== res.credits) {
-              const updatedUser = { ...userData, credits: res.credits };
+            const formattedUser = userData.data || userData.user || userData;
+            
+            if (formattedUser && formattedUser.credits !== res.credits) {
+              const updatedUser = { ...formattedUser, credits: res.credits };
               localStorage.setItem('user', JSON.stringify(updatedUser));
               setUser(updatedUser);
               
@@ -99,10 +107,16 @@ export default function DashboardPage() {
 
   const handleLogout = () => {
     localStorage.removeItem('user');
-    router.push("/login");
+    window.location.href = "/login";
   };
 
-  if (!isMounted || !user) return null;
+  if (!isMounted || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <RefreshCcw className="h-10 w-10 animate-spin text-primary opacity-20" />
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-background p-4 md:p-8 space-y-8">
