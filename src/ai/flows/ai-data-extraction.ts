@@ -35,7 +35,7 @@ const aiDataExtractionPrompt = ai.definePrompt({
 
 Extract the following:
 1.  **Source Links**: Any URLs or web links present in the content.
-2.  **Phone Numbers**: Any sequences of digits that appear to be phone numbers. Include any country codes, parentheses, dashes, or spaces as they appear.
+2.  **Phone Numbers**: Any sequences of digits that appear to be phone numbers. Pay close attention to international formats starting with '+', especially '+1' for North America, as well as local formats with parentheses, dashes, or spaces. Ensure you extract the full number including the country code if present.
 3.  **Business Names**: Names of companies, organizations, or businesses.
 
 If a category of information is not found, return an empty array for that category. Do not infer or invent information. Only extract what is explicitly present in the 'fileContent'.
