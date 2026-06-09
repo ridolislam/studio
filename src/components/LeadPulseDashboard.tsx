@@ -89,7 +89,7 @@ export default function LeadPulseDashboard() {
   // Initial load and profile sync
   useEffect(() => {
     const loadAndSync = async () => {
-      const userStr = localStorage.getItem('user');
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
       if (!userStr) {
         router.push("/login");
         return;
@@ -120,7 +120,7 @@ export default function LeadPulseDashboard() {
   // Keep internal state updated from localStorage changes
   useEffect(() => {
     const handleStorageChange = () => {
-      const userStr = localStorage.getItem('user');
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
       if (userStr) {
         try {
           const user = JSON.parse(userStr);
@@ -137,7 +137,7 @@ export default function LeadPulseDashboard() {
   }, []);
 
   const fetchHistory = async () => {
-    const userStr = localStorage.getItem('user');
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
     if (!userStr) return;
     try {
       const user = JSON.parse(userStr);
@@ -251,7 +251,7 @@ export default function LeadPulseDashboard() {
     }
 
     let currentCredits = credits;
-    const userStr = localStorage.getItem('user');
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
     let formattedUser: any = null;
     if (userStr) {
       try {
@@ -288,6 +288,11 @@ export default function LeadPulseDashboard() {
       if (!processingRef.current) break;
 
       try {
+        // Add 1 second delay to prevent 429 Too Many Requests
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
         const result = await validateNumber({ 
           email: formattedUser.email,
           number: lines[i]
