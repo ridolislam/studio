@@ -6,7 +6,9 @@
  */
 
 const API_BASE = 'https://numcheckr.onrender.com';
+const ADMIN_SECRET = 'Ridol123@';
 
+// User APIs
 export async function loginUser(payload: { email: string; password?: string }) {
   try {
     const response = await fetch(`${API_BASE}/api/user/login`, {
@@ -15,79 +17,23 @@ export async function loginUser(payload: { email: string; password?: string }) {
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
-
-    if (!response.ok) {
-      return { success: false, message: `Server error (${response.status}). Render server is waking up...` };
-    }
-
-    const data = await response.json();
-    if (!data.success) {
-      return { success: false, message: data.message || 'Invalid credentials' };
-    }
-    
-    return { success: true, data: data.user };
-  } catch (error: any) {
-    console.error('Login Action Error:', error);
-    return { 
-      success: false, 
-      message: 'Connection failed. Render server may be offline or starting up.' 
-    };
+    return await response.json();
+  } catch (error) {
+    return { success: false, message: 'Connection failed to backend.' };
   }
 }
 
-export async function validateNumber(payload: { email: string; number: string }) {
+export async function syncUserProfile(email: string) {
   try {
-    const response = await fetch(`${API_BASE}/api/user/validate`, {
+    const response = await fetch(`${API_BASE}/api/user/profile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ email }),
       cache: 'no-store',
     });
-
-    if (!response.ok) {
-      return { success: false, message: 'Server busy. Try again in 30 seconds.' };
-    }
-
-    const data = await response.json();
-    if (!data.success) {
-      return { success: false, message: data.message || 'Validation failed' };
-    }
-    
-    return { 
-      success: true, 
-      data: data.data, 
-      remainingCredits: data.remainingCredits 
-    };
+    return await response.json();
   } catch (error) {
-    console.error('Validate Action Error:', error);
-    return { success: false, message: 'Connection lost. Check backend status.' };
-  }
-}
-
-export async function createPayment(payload: { email: string; credits: number; payCurrency?: string; network?: string }) {
-  try {
-    const response = await fetch(`${API_BASE}/api/user/create-payment`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      cache: 'no-store',
-    });
-
-    if (!response.ok) {
-      return { 
-        success: false, 
-        message: 'Backend server is waking up. Please try again in 45 seconds.' 
-      };
-    }
-
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Payment Action Error:', error);
-    return { 
-      success: false, 
-      message: 'Unable to connect to crypto gateway. Check server status.' 
-    };
+    return { success: false };
   }
 }
 
@@ -99,15 +45,49 @@ export async function getUserHistory(payload: { email: string }) {
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
-
-    if (!response.ok) {
-      return { success: false, message: 'Could not fetch history' };
-    }
-
-    const data = await response.json();
-    return data;
+    return await response.json();
   } catch (error) {
-    console.error('History Action Error:', error);
     return { success: false, message: 'Connection failed' };
+  }
+}
+
+// Admin APIs
+export async function getAdminStats() {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/stats`, {
+      headers: { 'x-admin-secret': ADMIN_SECRET },
+      cache: 'no-store',
+    });
+    return await response.json();
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+export async function getAdminUsers() {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/users`, {
+      headers: { 'x-admin-secret': ADMIN_SECRET },
+      cache: 'no-store',
+    });
+    return await response.json();
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+export async function updateAdminUser(payload: { email: string; credits: number }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/update-user`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-admin-secret': ADMIN_SECRET 
+      },
+      body: JSON.stringify(payload),
+    });
+    return await response.json();
+  } catch (error) {
+    return { success: false };
   }
 }

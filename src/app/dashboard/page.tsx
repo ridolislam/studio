@@ -1,10 +1,9 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LeadPulseDashboard from "@/components/LeadPulseDashboard";
-import { LogOut, Plus, User, Wallet, ShieldCheck } from "lucide-react";
+import { LogOut, Plus, User, Wallet, ShieldCheck, RefreshCcw, LayoutPanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { 
   DropdownMenu, 
@@ -16,9 +15,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import Logo from "@/components/Logo";
+import { syncUserProfile } from "@/app/actions/backend";
 
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const router = useRouter();
 
@@ -28,21 +29,33 @@ export default function DashboardPage() {
     if (!userStr) {
       router.push("/login");
     } else {
-      setUser(JSON.parse(userStr));
+      const currentUser = JSON.parse(userStr);
+      setUser(currentUser);
+      syncProfile(currentUser.email);
     }
   }, [router]);
 
-  // Function to refresh user data from localStorage (called when credits update)
+  // Periodic Sync every 60 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       const userStr = localStorage.getItem('user');
       if (userStr) {
-        const currentUser = JSON.parse(userStr);
-        setUser(currentUser);
+        syncProfile(JSON.parse(userStr).email);
       }
-    }, 1000);
+    }, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  const syncProfile = async (email: string) => {
+    setIsSyncing(true);
+    const res = await syncUserProfile(email);
+    if (res.success && res.user) {
+      const updatedUser = res.user;
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
+    }
+    setIsSyncing(false);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('user');
@@ -54,7 +67,6 @@ export default function DashboardPage() {
   return (
     <main className="min-h-screen bg-background p-4 md:p-8 space-y-8">
       <div className="container mx-auto">
-        {/* Modern Header Section */}
         <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-6 bg-card/50 p-6 rounded-3xl border border-white/5 backdrop-blur-sm">
           <div className="flex flex-col items-center md:items-start gap-1">
             <div className="flex items-center gap-3">
@@ -69,10 +81,9 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-4 bg-muted/20 p-2 rounded-2xl border border-white/5">
-            {/* Wallet & Credits Display */}
             <div className="flex items-center gap-3 px-4 py-2 bg-background/50 rounded-xl border border-primary/20 shadow-inner">
               <div className="p-2 bg-primary/10 rounded-lg">
-                <Wallet className="h-5 w-5 text-primary" />
+                <Wallet className={isSyncing ? "h-5 w-5 text-primary animate-spin" : "h-5 w-5 text-primary"} />
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase text-muted-foreground leading-none mb-1">Available Credits</span>
@@ -82,23 +93,20 @@ export default function DashboardPage() {
                 variant="ghost" 
                 size="icon" 
                 onClick={() => router.push("/credits")}
-                className="ml-2 h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-lg"
+                className="ml-2 h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
 
-            <div className="h-10 w-px bg-white/10 mx-1 hidden md:block" />
-
-            {/* User Profile Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-14 px-4 rounded-xl border border-white/5 hover:bg-primary/5 transition-all group">
+                <Button variant="ghost" className="h-14 px-4 rounded-xl border border-white/5 hover:bg-primary/5 group">
                    <div className="flex items-center gap-3">
-                      <div className="bg-gradient-to-br from-primary to-accent h-10 w-10 rounded-lg flex items-center justify-center text-white font-black shadow-lg shadow-primary/20 group-hover:scale-110 transition-transform">
+                      <div className="bg-gradient-to-br from-primary to-accent h-10 w-10 rounded-lg flex items-center justify-center text-white font-black shadow-lg">
                         {user.name?.charAt(0) || <User className="h-5 w-5" />}
                       </div>
-                      <div className="hidden sm:flex flex-col items-start">
+                      <div className="hidden sm:flex flex-col items-start text-left">
                         <span className="text-sm font-black italic">{user.name || "User Account"}</span>
                         <Badge variant="outline" className="text-[8px] h-4 font-black uppercase tracking-widest border-primary/30 text-primary">Pro Member</Badge>
                       </div>
@@ -115,16 +123,19 @@ export default function DashboardPage() {
                 <DropdownMenuSeparator className="bg-white/5" />
                 <div className="py-2 space-y-1">
                   <DropdownMenuItem onClick={() => router.push("/credits")} className="rounded-xl cursor-pointer font-bold py-3 hover:bg-primary/10">
-                    <Wallet className="mr-3 h-4 w-4 text-primary" />
-                    Billing & Credits
+                    <Wallet className="mr-3 h-4 w-4 text-primary" /> Billing & Credits
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="rounded-xl cursor-pointer font-bold py-3 hover:bg-primary/10">
-                    <ShieldCheck className="mr-3 h-4 w-4 text-primary" />
-                    Security Settings
+                  {user.email === 'admin@numcheckr.com' && (
+                    <DropdownMenuItem onClick={() => router.push("/admin")} className="rounded-xl cursor-pointer font-bold py-3 hover:bg-primary/10">
+                      <LayoutPanelLeft className="mr-3 h-4 w-4 text-primary" /> Admin Panel
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => syncProfile(user.email)} className="rounded-xl cursor-pointer font-bold py-3 hover:bg-primary/10">
+                    <RefreshCcw className="mr-3 h-4 w-4 text-primary" /> Sync Profile
                   </DropdownMenuItem>
                 </div>
                 <DropdownMenuSeparator className="bg-white/5" />
-                <DropdownMenuItem onClick={handleLogout} className="rounded-xl cursor-pointer font-bold py-3 text-destructive hover:bg-destructive/10 mt-1">
+                <DropdownMenuItem onClick={handleLogout} className="rounded-xl cursor-pointer font-bold py-3 text-destructive hover:bg-destructive/10">
                   <LogOut className="mr-3 h-4 w-4" /> Log Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -132,7 +143,6 @@ export default function DashboardPage() {
           </div>
         </div>
         
-        {/* Dashboard Content */}
         <LeadPulseDashboard />
       </div>
     </main>
