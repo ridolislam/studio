@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -44,6 +45,48 @@ export default function AdminPanel() {
     setIsMounted(true);
   }, []);
 
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [statsRes, usersRes] = await Promise.all([getAdminStats(), getAdminUsers()]);
+      
+      // Handle Stats Response
+      if (statsRes) {
+        if (statsRes.success && statsRes.stats) {
+          setStats(statsRes.stats);
+        } else if (statsRes.stats) {
+          setStats(statsRes.stats);
+        } else if (statsRes.data) {
+          setStats(statsRes.data);
+        }
+      }
+
+      // Handle Users Response - Be flexible with different API formats
+      if (usersRes) {
+        if (Array.isArray(usersRes)) {
+          setUsers(usersRes);
+        } else if (usersRes.success && Array.isArray(usersRes.users)) {
+          setUsers(usersRes.users);
+        } else if (usersRes.success && Array.isArray(usersRes.data)) {
+          setUsers(usersRes.data);
+        } else if (Array.isArray(usersRes.data)) {
+          setUsers(usersRes.data);
+        } else if (Array.isArray(usersRes.users)) {
+          setUsers(usersRes.users);
+        }
+      }
+    } catch (err) {
+      console.error("Fetch Error:", err);
+      toast({ 
+        variant: "destructive", 
+        title: "Sync Error", 
+        description: "Failed to connect to admin API." 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (secretInput === ADMIN_SECRET) {
@@ -59,19 +102,6 @@ export default function AdminPanel() {
         title: "Access Denied",
         description: "Invalid Secret Key. Please try again.",
       });
-    }
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [statsRes, usersRes] = await Promise.all([getAdminStats(), getAdminUsers()]);
-      if (statsRes.success) setStats(statsRes.stats);
-      if (usersRes.success) setUsers(usersRes.users);
-    } catch (err) {
-      toast({ variant: "destructive", title: "Sync Error", description: "Failed to fetch admin data." });
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -96,7 +126,6 @@ export default function AdminPanel() {
       const workbook = XLSX.read(event.target?.result, { type: 'binary' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(sheet);
-      console.log("Excel Data:", data);
       toast({ title: "File Loaded", description: `Parsed ${data.length} records. Ready for upload.` });
     };
     reader.readAsBinaryString(file);
@@ -114,7 +143,7 @@ export default function AdminPanel() {
             <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6 border border-primary/20">
               <Lock className="h-8 w-8 text-primary" />
             </div>
-            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter">Master Access</CardTitle>
+            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter text-3d">Master Access</CardTitle>
             <CardDescription className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground mt-2">
               Unauthorized access is strictly prohibited
             </CardDescription>
@@ -152,13 +181,6 @@ export default function AdminPanel() {
       </div>
     );
   }
-
-  if (loading && users.length === 0) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background space-y-4">
-      <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      <p className="font-black italic uppercase text-xs tracking-[0.3em] animate-pulse">Establishing Secure Session</p>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -214,7 +236,7 @@ export default function AdminPanel() {
               </Card>
               <Card className="border-green-500/20 bg-green-500/5 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
                 <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <DollarSign size={120} />
+                   <DollarSignIcon size={120} />
                 </div>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-green-500/70 mb-2">Estimated Revenue</p>
                 <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">${stats?.revenue?.toFixed(2) || 0}</h3>
@@ -236,7 +258,9 @@ export default function AdminPanel() {
                 </div>
                 <div className="flex items-center gap-4">
                    <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                   <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Connected</span>
+                   <span className="text-[10px] font-black uppercase tracking-widest opacity-60">
+                     {loading ? "Syncing..." : "Connected"}
+                   </span>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
@@ -250,12 +274,19 @@ export default function AdminPanel() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {users.filter(u => u.email.toLowerCase().includes(search.toLowerCase())).map((user) => (
+                      {loading && users.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={3} className="h-64 text-center">
+                            <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
+                            <p className="font-black italic uppercase text-xs opacity-50">Fetching Server Data...</p>
+                          </TableCell>
+                        </TableRow>
+                      ) : users.filter(u => u.email.toLowerCase().includes(search.toLowerCase())).map((user) => (
                         <TableRow key={user.email} className="border-white/5 hover:bg-white/5 h-20 group transition-colors">
                           <TableCell className="px-6 md:px-8">
                             <div className="flex flex-col">
                               <span className="font-black italic text-base md:text-lg truncate max-w-[150px] md:max-w-none">{user.email}</span>
-                              <span className="text-[9px] font-bold text-muted-foreground uppercase">Member since: {new Date().toLocaleDateString()}</span>
+                              <span className="text-[9px] font-bold text-muted-foreground uppercase">Member</span>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -287,7 +318,7 @@ export default function AdminPanel() {
                         <TableRow>
                           <TableCell colSpan={3} className="h-64 text-center">
                             <Users className="h-12 w-12 text-muted-foreground/20 mx-auto mb-4" />
-                            <p className="font-black italic uppercase text-muted-foreground/40">No users found</p>
+                            <p className="font-black italic uppercase text-muted-foreground/40">No users found on server</p>
                           </TableCell>
                         </TableRow>
                       )}
@@ -303,7 +334,7 @@ export default function AdminPanel() {
               <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none"></div>
               <Upload className="h-12 w-12 md:h-16 md:w-16 text-primary mx-auto mb-6 opacity-40 group-hover:scale-110 transition-transform duration-500" />
               <h3 className="text-2xl md:text-4xl font-black italic mb-4 tracking-tighter">Bulk Key Injection</h3>
-              <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-widest md:tracking-[0.2em] mb-8 md:mb-10 max-w-sm md:max-w-md mx-auto leading-relaxed">
+              <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-widest md:tracking-[0.1em] mb-8 md:mb-10 max-w-sm md:max-w-md mx-auto leading-relaxed">
                 Upload encrypted Excel datasets (.xlsx) to update the system API pool automatically.
               </p>
               <input type="file" id="excelFile" onChange={handleExcelUpload} className="hidden" accept=".xlsx,.csv" />
@@ -321,7 +352,7 @@ export default function AdminPanel() {
   );
 }
 
-function DollarSign({ size = 24, className = "" }) {
+function DollarSignIcon({ size = 24, className = "" }) {
   return (
     <svg 
       xmlns="http://www.w3.org/2000/svg" 
