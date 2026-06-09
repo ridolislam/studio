@@ -37,7 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRouter } from "next/navigation";
-import { validateNumber, getUserHistory } from "@/app/actions/backend";
+import { validateNumber, getUserHistory, syncUserProfile } from "@/app/actions/backend";
 import * as XLSX from 'xlsx';
 import { cn } from "@/lib/utils";
 
@@ -86,44 +86,76 @@ export default function LeadPulseDashboard() {
   const processingRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Initial load and profile sync
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if (!userStr) {
-      router.push("/login");
-      return;
-    }
-    try {
-      const user = JSON.parse(userStr);
-      if (user) {
-        setCredits(user.credits || 0);
-        fetchHistory();
+    const loadAndSync = async () => {
+      const userStr = localStorage.getItem('user');
+      if (!userStr) {
+        router.push("/login");
+        return;
       }
-    } catch (e) {
-      localStorage.removeItem('user');
-      router.push("/login");
-    }
+      try {
+        const user = JSON.parse(userStr);
+        const formattedUser = user.data || user.user || user;
+        
+        if (formattedUser && formattedUser.email) {
+          // Set local state immediately
+          setCredits(Number(formattedUser.credits) || 0);
+          
+          // Try to sync with server to get absolute latest
+          const res = await syncUserProfile(formattedUser.email);
+          if (res && res.success) {
+            setCredits(Number(res.credits));
+            const updatedUser = { ...formattedUser, credits: res.credits };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+          }
+          fetchHistory();
+        }
+      } catch (e) {
+        console.error("Dashboard init error:", e);
+      }
+    };
+
+    loadAndSync();
   }, [router]);
+
+  // Keep internal state updated from localStorage changes (for parent syncs)
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        try {
+          const user = JSON.parse(userStr);
+          const formattedUser = user.data || user.user || user;
+          if (formattedUser) {
+            setCredits(Number(formattedUser.credits) || 0);
+          }
+        } catch (e) {}
+      }
+    };
+
+    const interval = setInterval(handleStorageChange, 2000); // Check every 2s for local changes
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchHistory = async () => {
     const userStr = localStorage.getItem('user');
     if (!userStr) return;
     try {
       const user = JSON.parse(userStr);
-      if (!user || !user.email) return;
+      const formattedUser = user.data || user.user || user;
+      if (!formattedUser || !formattedUser.email) return;
 
       setIsLoadingHistory(true);
-      try {
-        const result = await getUserHistory({ email: user.email });
-        if (result.success) {
-          setHistory(result.history || []);
-          setFilteredHistory(result.history || []);
-        }
-      } catch (err) {
-        console.error("History fetch error:", err);
-      } finally {
-        setIsLoadingHistory(false);
+      const result = await getUserHistory({ email: formattedUser.email });
+      if (result.success) {
+        setHistory(result.history || []);
+        setFilteredHistory(result.history || []);
       }
-    } catch (e) {}
+      setIsLoadingHistory(false);
+    } catch (e) {
+      setIsLoadingHistory(false);
+    }
   };
 
   useEffect(() => {
@@ -151,13 +183,11 @@ export default function LeadPulseDashboard() {
 
         let rows: any[][] = [];
 
-        // 1. ফাইল টাইপ অনুযায়ী ডাটা পড়া
         if (extension === 'xlsx' || extension === 'xls') {
           const workbook = XLSX.read(data, { type: 'binary' });
           const sheetName = workbook.SheetNames[0];
           rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
         } else {
-          // CSV বা TXT এর জন্য
           const text = data.toString();
           rows = text.split('\n').map(line => line.split(','));
         }
@@ -165,26 +195,21 @@ export default function LeadPulseDashboard() {
         const extractedNumbers: string[] = [];
         let extractedLinksCount = 0;
 
-        // 2. প্রতিটি রো (Row) প্রসেস করা (User logic implemented)
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i];
           if (!row || row.length < 1) continue;
 
           let foundNumber = "";
-          let sourceLink = String(row[0] || "").trim(); // প্রথম কলাম Source Link
-          let businessName = String(row[row.length - 1] || "").trim(); // শেষ কলাম Business Name
+          let sourceLink = String(row[0] || "").trim();
 
-          // ৩. রো এর ভেতর থেকে মোবাইল নাম্বার খোঁজা (Regex Logic for +1 and others)
           row.forEach((cell) => {
             const cellVal = String(cell || "").trim();
-            // নাম্বার ফরম্যাট চেক (৭ থেকে ১৫ ডিজিট, stripping symbols)
             const cleanCell = cellVal.replace(/[\s-()]/g, '');
             if (!foundNumber && /^\+?[0-9]{7,15}$/.test(cleanCell)) {
               foundNumber = cleanCell;
             }
           });
 
-          // ৪. যদি নাম্বার পাওয়া যায় তবেই লিস্টে যোগ হবে
           if (foundNumber) {
             extractedNumbers.push(foundNumber);
             if (sourceLink.startsWith('http')) {
@@ -200,34 +225,18 @@ export default function LeadPulseDashboard() {
             ...prev, 
             links: prev.links + extractedLinksCount 
           }));
-
-          toast({ 
-            title: "Success", 
-            description: `Extracted ${extractedNumbers.length} phone numbers from ${file.name}.` 
-          });
-          console.log(`✅ [FILE] Total extracted: ${extractedNumbers.length} items from ${file.name}`);
+          toast({ title: "Success", description: `Extracted ${extractedNumbers.length} phone numbers.` });
         } else {
-          toast({ 
-            variant: "destructive",
-            title: "No Data Found", 
-            description: "Could not find any valid phone numbers in this file." 
-          });
+          toast({ variant: "destructive", title: "No Data", description: "No valid numbers found." });
         }
-
       } catch (err) {
-        console.error("❌ [FILE ERROR] Parsing failed:", err);
-        toast({ 
-          variant: "destructive", 
-          title: "Scan Failed", 
-          description: "Could not parse file data. Please ensure it's a valid format." 
-        });
+        toast({ variant: "destructive", title: "Scan Failed", description: "Invalid file format." });
       } finally {
         setIsExtracting(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };
 
-    // ফাইল রিড করা শুরু
     if (extension === 'xlsx' || extension === 'xls') {
       reader.readAsBinaryString(file);
     } else {
@@ -243,8 +252,24 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    if (credits < lines.length) {
-      toast({ variant: "destructive", title: "Insufficient Credits", description: "Top up your wallet to continue." });
+    // Double check credits from localStorage before starting to avoid stale state issues
+    let currentCredits = credits;
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        const formattedUser = user.data || user.user || user;
+        currentCredits = Number(formattedUser.credits) || 0;
+        setCredits(currentCredits); // Sync local state
+      } catch(e) {}
+    }
+
+    if (currentCredits < lines.length) {
+      toast({ 
+        variant: "destructive", 
+        title: "Insufficient Credits", 
+        description: `You need ${lines.length} credits, but only have ${currentCredits}. Please top up.` 
+      });
       return;
     }
 
@@ -252,18 +277,18 @@ export default function LeadPulseDashboard() {
     processingRef.current = true;
     setProgress(0);
 
-    const userStr = localStorage.getItem('user');
     if (!userStr) return;
     try {
       const user = JSON.parse(userStr);
-      if (!user) return;
+      const formattedUser = user.data || user.user || user;
+      if (!formattedUser) return;
 
       for (let i = 0; i < lines.length; i++) {
         if (!processingRef.current) break;
 
         try {
           const result = await validateNumber({ 
-            email: user.email,
+            email: formattedUser.email,
             number: lines[i]
           });
 
@@ -292,12 +317,13 @@ export default function LeadPulseDashboard() {
             }
             
             if (result.remainingCredits !== undefined) {
-              setCredits(result.remainingCredits);
-              const updatedUser = { ...user, credits: result.remainingCredits };
+              const newRemCredits = Number(result.remainingCredits);
+              setCredits(newRemCredits);
+              const updatedUser = { ...formattedUser, credits: newRemCredits };
               localStorage.setItem('user', JSON.stringify(updatedUser));
               
               const creditDisplay = document.getElementById('creditBalance');
-              if (creditDisplay) creditDisplay.innerText = result.remainingCredits.toString();
+              if (creditDisplay) creditDisplay.innerText = newRemCredits.toString();
             }
           }
         } catch (error) {
