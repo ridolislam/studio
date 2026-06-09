@@ -99,10 +99,8 @@ export default function LeadPulseDashboard() {
         const formattedUser = user.data || user.user || user;
         
         if (formattedUser && formattedUser.email) {
-          // Set local state immediately
           setCredits(Number(formattedUser.credits) || 0);
           
-          // Try to sync with server to get absolute latest
           const res = await syncUserProfile(formattedUser.email);
           if (res && res.success) {
             setCredits(Number(res.credits));
@@ -119,7 +117,7 @@ export default function LeadPulseDashboard() {
     loadAndSync();
   }, [router]);
 
-  // Keep internal state updated from localStorage changes (for parent syncs)
+  // Keep internal state updated from localStorage changes
   useEffect(() => {
     const handleStorageChange = () => {
       const userStr = localStorage.getItem('user');
@@ -134,7 +132,7 @@ export default function LeadPulseDashboard() {
       }
     };
 
-    const interval = setInterval(handleStorageChange, 2000); // Check every 2s for local changes
+    const interval = setInterval(handleStorageChange, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -252,15 +250,15 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Double check credits from localStorage before starting to avoid stale state issues
     let currentCredits = credits;
     const userStr = localStorage.getItem('user');
+    let formattedUser: any = null;
     if (userStr) {
       try {
         const user = JSON.parse(userStr);
-        const formattedUser = user.data || user.user || user;
+        formattedUser = user.data || user.user || user;
         currentCredits = Number(formattedUser.credits) || 0;
-        setCredits(currentCredits); // Sync local state
+        setCredits(currentCredits);
       } catch(e) {}
     }
 
@@ -273,7 +271,6 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Determine how many numbers we can process based on credits
     const processLimit = Math.min(lines.length, currentCredits);
     
     if (processLimit < lines.length) {
@@ -287,68 +284,68 @@ export default function LeadPulseDashboard() {
     processingRef.current = true;
     setProgress(0);
 
-    if (!userStr) return;
-    try {
-      const user = JSON.parse(userStr);
-      const formattedUser = user.data || user.user || user;
-      if (!formattedUser) return;
+    for (let i = 0; i < processLimit; i++) {
+      if (!processingRef.current) break;
 
-      for (let i = 0; i < processLimit; i++) {
-        if (!processingRef.current) break;
+      try {
+        const result = await validateNumber({ 
+          email: formattedUser.email,
+          number: lines[i]
+        });
 
-        try {
-          const result = await validateNumber({ 
-            email: formattedUser.email,
-            number: lines[i]
-          });
+        // Backend format compatibility: Support both result.data and direct result
+        const valData = result.data || result;
 
-          if (result.success) {
-            const data = result.data;
-            const type = data.line_type?.toLowerCase() || "unknown";
+        if (result.success || valData.success) {
+          const type = valData.line_type?.toLowerCase() || "unknown";
+          
+          const newResult: ValidationResult = {
+            id: Math.random().toString(36).substr(2, 9),
+            number: valData.number || lines[i],
+            type: valData.line_type || "Invalid",
+            carrier: valData.carrier || "N/A",
+            location: valData.location || "N/A",
+            status: valData.valid ? "success" : "invalid",
+            timestamp: new Date().toISOString()
+          };
+
+          // Update results list immediately
+          setResults(prev => [newResult, ...prev]);
+
+          // Update counts
+          if (!valData.valid) {
+            setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
+          } else if (type.includes("mobile")) {
+            setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
+          } else {
+            setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
+          }
+          
+          // Update credits if returned
+          const remCredits = result.remainingCredits !== undefined ? result.remainingCredits : valData.remainingCredits;
+          if (remCredits !== undefined) {
+            const newRemCredits = Number(remCredits);
+            setCredits(newRemCredits);
+            const updatedUser = { ...formattedUser, credits: newRemCredits };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
             
-            const newResult: ValidationResult = {
-              id: Math.random().toString(36).substr(2, 9),
-              number: data.number || lines[i],
-              type: data.line_type || "Invalid",
-              carrier: data.carrier || "N/A",
-              location: data.location || "N/A",
-              status: data.valid ? "success" : "invalid",
-              timestamp: new Date().toISOString()
-            };
-
-            setResults(prev => [newResult, ...prev]);
-
-            if (!data.valid) {
-              setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
-            } else if (type.includes("mobile")) {
-              setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
-            } else {
-              setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
-            }
+            const creditDisplay = document.getElementById('creditBalance');
+            if (creditDisplay) creditDisplay.innerText = newRemCredits.toString();
             
-            if (result.remainingCredits !== undefined) {
-              const newRemCredits = Number(result.remainingCredits);
-              setCredits(newRemCredits);
-              const updatedUser = { ...formattedUser, credits: newRemCredits };
-              localStorage.setItem('user', JSON.stringify(updatedUser));
-              
-              const creditDisplay = document.getElementById('creditBalance');
-              if (creditDisplay) creditDisplay.innerText = newRemCredits.toString();
-              
-              // If we ran out of credits during processing (unlikely but safe)
-              if (newRemCredits <= 0) {
-                toast({ variant: "destructive", title: "Credits Exhausted", description: "Stopping process as credits are finished." });
-                break;
-              }
+            if (newRemCredits <= 0) {
+              toast({ variant: "destructive", title: "Credits Exhausted", description: "Stopping process as credits are finished." });
+              break;
             }
           }
-        } catch (error) {
-          console.error(`Error validating ${lines[i]}`, error);
+        } else {
+          console.warn(`Validation failed for ${lines[i]}:`, result.message || valData.message);
         }
-
-        setProgress(Math.round(((i + 1) / processLimit) * 100));
+      } catch (error) {
+        console.error(`Error validating ${lines[i]}:`, error);
       }
-    } catch (e) {}
+
+      setProgress(Math.round(((i + 1) / processLimit) * 100));
+    }
 
     setIsProcessing(false);
     processingRef.current = false;
@@ -448,7 +445,7 @@ export default function LeadPulseDashboard() {
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <button onClick={() => downloadCategory('mobile')} className="group">
-                  <Card className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-green-500/10 transition-all">
+                  <Card className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-green-500/10 transition-all text-left">
                     <div>
                       <p className="text-[10px] font-black uppercase text-green-500">Mobile</p>
                       <h3 className="text-3xl font-black italic">{counts.mobile}</h3>
@@ -458,7 +455,7 @@ export default function LeadPulseDashboard() {
                 </button>
                 
                 <button onClick={() => downloadCategory('landline')} className="group">
-                  <Card className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-blue-500/10 transition-all">
+                  <Card className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-blue-500/10 transition-all text-left">
                     <div>
                       <p className="text-[10px] font-black uppercase text-blue-500">Landline</p>
                       <h3 className="text-3xl font-black italic">{counts.landline}</h3>
@@ -468,7 +465,7 @@ export default function LeadPulseDashboard() {
                 </button>
 
                 <button onClick={() => downloadCategory('invalid')} className="group">
-                  <Card className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-red-500/10 transition-all">
+                  <Card className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl flex items-center justify-between hover:bg-red-500/10 transition-all text-left">
                     <div>
                       <p className="text-[10px] font-black uppercase text-red-500">Invalid</p>
                       <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
@@ -477,7 +474,7 @@ export default function LeadPulseDashboard() {
                   </Card>
                 </button>
 
-                <Card className="border-primary/20 bg-primary/5 p-4 rounded-2xl flex items-center justify-between">
+                <Card className="border-primary/20 bg-primary/5 p-4 rounded-2xl flex items-center justify-between text-left">
                   <div>
                     <p className="text-[10px] font-black uppercase text-primary">Links</p>
                     <h3 className="text-3xl font-black italic">{counts.links}</h3>
@@ -497,7 +494,7 @@ export default function LeadPulseDashboard() {
               <Card className="bg-card border-white/5 rounded-2xl overflow-hidden shadow-2xl">
                 <CardHeader className="flex flex-row items-center justify-between py-4 border-b border-white/5 bg-muted/5">
                   <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-primary" /> Validation Table
+                    <CheckCircle2 className="h-4 w-4 text-primary" /> Live Validation Feed
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     <Button variant="ghost" size="icon" onClick={() => downloadCategory('all')} disabled={results.length === 0}>
@@ -524,8 +521,14 @@ export default function LeadPulseDashboard() {
                         {results.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={5} className="h-64 text-center opacity-20">
-                              <Search className="h-12 w-12 mx-auto mb-4" />
-                              <p className="font-black italic uppercase tracking-widest">No active leads</p>
+                              {isProcessing ? (
+                                <Loader2 className="h-10 w-10 animate-spin mx-auto mb-4" />
+                              ) : (
+                                <Search className="h-12 w-12 mx-auto mb-4" />
+                              )}
+                              <p className="font-black italic uppercase tracking-widest">
+                                {isProcessing ? "Validating Leads..." : "Waiting for Leads"}
+                              </p>
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -561,8 +564,8 @@ export default function LeadPulseDashboard() {
           <Card className="border-white/5 bg-card/60 backdrop-blur-xl shadow-2xl rounded-3xl overflow-hidden">
             <CardHeader className="border-b border-white/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6 bg-muted/5">
               <div className="space-y-1">
-                <CardTitle className="text-2xl font-black italic uppercase tracking-tighter">Activity History</CardTitle>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Track your work and payments</p>
+                <CardTitle className="text-2xl font-black italic uppercase tracking-tighter text-left">Activity History</CardTitle>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest text-left">Track your work and payments</p>
               </div>
 
               <div className="relative w-full md:w-[350px]">
@@ -653,4 +656,3 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
-
