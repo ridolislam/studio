@@ -20,7 +20,8 @@ import {
   RefreshCcw,
   Terminal,
   Code2,
-  Search
+  Search,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -80,7 +81,6 @@ export default function LeadPulseDashboard() {
   const processingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Authentication and Session Check
   useEffect(() => {
     setIsMounted(true);
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -93,7 +93,6 @@ export default function LeadPulseDashboard() {
     fetchAndSyncProfile();
     fetchHistory();
 
-    // Requirement: Sync credits every 60 seconds
     const syncInterval = setInterval(() => {
       fetchAndSyncProfile();
     }, 60000);
@@ -113,11 +112,9 @@ export default function LeadPulseDashboard() {
       const res = await syncUserProfile(email);
       if (res && res.success) {
         setCredits(res.credits);
-        // Update UI credits
         const creditEl = document.getElementById('creditBalance');
         if (creditEl) creditEl.innerText = res.credits.toString();
         
-        // Update localStorage
         const updatedUser = { ...userData, credits: res.credits };
         localStorage.setItem('user', JSON.stringify(updatedUser));
       }
@@ -186,6 +183,24 @@ export default function LeadPulseDashboard() {
     else reader.readAsText(file);
   };
 
+  const downloadExcel = (data: ValidationResult[], fileName: string) => {
+    if (data.length === 0) {
+      toast({ variant: 'destructive', title: 'No Data', description: 'There are no results to download.' });
+      return;
+    }
+    const ws = XLSX.utils.json_to_sheet(data.map(item => ({
+      Number: item.number,
+      Type: item.type,
+      Carrier: item.carrier,
+      Location: item.location,
+      Status: item.status,
+      Timestamp: item.timestamp
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Results");
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
+  };
+
   const handleStart = async () => {
     const lines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (lines.length === 0) {
@@ -215,7 +230,6 @@ export default function LeadPulseDashboard() {
 
       while (!validated && attempts < 5 && processingRef.current) {
         try {
-          // A. [Step 1: Fetch Key]
           const keyRes = await getValidationKey(email);
           if (!keyRes || !keyRes.success) {
             toast({ variant: "destructive", title: "Key Error", description: keyRes?.message || "Could not fetch API keys." });
@@ -225,7 +239,6 @@ export default function LeadPulseDashboard() {
 
           const { apiKey, rapidKey } = keyRes;
 
-          // B. [Step 2: Direct API Call]
           const response = await fetch(
             `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${number}&access_key=${apiKey}`,
             {
@@ -237,27 +250,21 @@ export default function LeadPulseDashboard() {
             }
           );
 
-          // D. [Step 4: Error/Bad Key Reporting]
           if (response.status === 429 || response.status === 403) {
             await reportBadKey({ key: apiKey });
             attempts++;
-            // Wait for 2 seconds (delay) and automatically retry
             await new Promise(r => setTimeout(r, 2000));
             continue; 
           }
 
           if (!response.ok) {
             console.error(`RapidAPI HTTP Error: ${response.status}`);
-            break; // Move to next number for general errors
+            break;
           }
 
           const data = await response.json();
-          
-          // C. [Step 3: Success Reporting]
-          // Show the raw JSON in a "Live server Response" box.
           setLiveJson(data);
 
-          // Call report-success to update backend
           const reportRes = await reportValidationSuccess({
             email,
             key: apiKey,
@@ -266,12 +273,10 @@ export default function LeadPulseDashboard() {
           });
 
           if (reportRes && reportRes.success) {
-            // Update the Credit Balance on the UI
             setCredits(reportRes.remainingCredits);
             const creditEl = document.getElementById('creditBalance');
             if (creditEl) creditEl.innerText = reportRes.remainingCredits.toString();
 
-            // Add the result to the main table
             const newRes: ValidationResult = {
               id: Math.random().toString(36).substr(2, 9),
               number: data.number || number,
@@ -283,7 +288,6 @@ export default function LeadPulseDashboard() {
             };
             setResults(prev => [newRes, ...prev]);
             
-            // Update counts
             const ltype = String(data.line_type || '').toLowerCase();
             if (!data.valid) setCounts(p => ({ ...p, invalid: p.invalid + 1 }));
             else if (ltype.includes('mobile')) setCounts(p => ({ ...p, mobile: p.mobile + 1 }));
@@ -304,7 +308,6 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / lines.length) * 100));
 
-      // Requirement: 1.5-second delay between each successful validation
       if (validated && i < lines.length - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 1500));
       }
@@ -390,7 +393,6 @@ export default function LeadPulseDashboard() {
                 </CardContent>
               </Card>
 
-              {/* Requirement: Live server Response formatted box */}
               <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden shadow-xl">
                 <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-primary" />
@@ -413,16 +415,34 @@ export default function LeadPulseDashboard() {
 
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-green-500 mb-1">Mobile Found</p>
+                <Card 
+                  onClick={() => downloadExcel(results.filter(r => r.type.toLowerCase().includes('mobile')), 'Mobile_Leads')}
+                  className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-green-500/10 transition-colors group"
+                >
+                  <div className="flex justify-between items-start">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-green-500 mb-1">Mobile Found</p>
+                    <Download className="h-3 w-3 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <h3 className="text-3xl font-black italic">{counts.mobile}</h3>
                 </Card>
-                <Card className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">Landline Found</p>
+                <Card 
+                  onClick={() => downloadExcel(results.filter(r => r.type.toLowerCase().includes('landline')), 'Landline_Leads')}
+                  className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-blue-500/10 transition-colors group"
+                >
+                  <div className="flex justify-between items-start">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">Landline Found</p>
+                    <Download className="h-3 w-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <h3 className="text-3xl font-black italic">{counts.landline}</h3>
                 </Card>
-                <Card className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Invalid Leads</p>
+                <Card 
+                  onClick={() => downloadExcel(results.filter(r => r.status === 'invalid'), 'Invalid_Leads')}
+                  className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-red-500/10 transition-colors group"
+                >
+                  <div className="flex justify-between items-start">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Invalid Leads</p>
+                    <Download className="h-3 w-3 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
                 </Card>
                 <Card className="border-primary/20 bg-primary/5 p-4 rounded-2xl border-2">
@@ -438,7 +458,17 @@ export default function LeadPulseDashboard() {
               <Card className="bg-card/60 backdrop-blur-xl border-white/5 rounded-3xl overflow-hidden shadow-2xl">
                 <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
                   <span className="text-xs font-black uppercase tracking-widest opacity-70">Real-time Validation Feed</span>
-                  <Badge variant="outline" className="text-[9px] font-black border-primary/30 text-primary">LIVE</Badge>
+                  <div className="flex items-center gap-3">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-8 rounded-lg text-[10px] font-black uppercase tracking-widest border-primary/30 text-primary hover:bg-primary/10"
+                      onClick={() => downloadExcel(results, 'All_Results')}
+                    >
+                      <FileSpreadsheet className="h-3 w-3 mr-2" /> Export XLSX
+                    </Button>
+                    <Badge variant="outline" className="text-[9px] font-black border-primary/30 text-primary">LIVE</Badge>
+                  </div>
                 </div>
                 <div className="overflow-x-auto">
                   <Table>
