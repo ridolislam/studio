@@ -156,8 +156,9 @@ export default function LeadPulseDashboard() {
   };
 
   useEffect(() => {
-    const search = historySearch.toLowerCase();
-    const filtered = history.filter(item => {
+    const search = (historySearch || "").toLowerCase();
+    const filtered = (history || []).filter(item => {
+      if (!item) return false;
       const desc = (item.description || "").toLowerCase();
       const type = (item.type || "").toLowerCase();
       return desc.includes(search) || type.includes(search);
@@ -305,9 +306,8 @@ export default function LeadPulseDashboard() {
         );
 
         if (rapidResponse.status === 429) {
-          toast({ title: "Rate Limit (429)", description: "Waiting for 2 seconds before retrying..." });
+          toast({ title: "Rate Limit (429)", description: "Waiting for 2 seconds before retrying with next number..." });
           await new Promise(r => setTimeout(r, 2000));
-          i--; 
           continue;
         }
 
@@ -315,6 +315,8 @@ export default function LeadPulseDashboard() {
 
         const rapidData = await rapidResponse.json();
         setLiveJson(rapidData);
+
+        if (!rapidData) continue;
 
         const newResult: ValidationResult = {
           id: Math.random().toString(36).substr(2, 9),
@@ -720,3 +722,4 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
+

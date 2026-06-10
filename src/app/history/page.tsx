@@ -40,8 +40,9 @@ export default function FullHistoryPage() {
   };
 
   useEffect(() => {
-    const searchLower = search.toLowerCase();
-    const results = history.filter(h => {
+    const searchLower = (search || "").toLowerCase();
+    const results = (history || []).filter(h => {
+      if (!h) return false;
       const desc = (h.description || "").toLowerCase();
       const type = (h.type || "").toLowerCase();
       return desc.includes(searchLower) || type.includes(searchLower);
