@@ -267,6 +267,10 @@ export default function LeadPulseDashboard() {
 
     const processLimit = Math.min(lines.length, currentCredits);
 
+    if (lines.length > currentCredits) {
+      toast({ title: "Partial Processing", description: `You have ${currentCredits} credits. Only first ${currentCredits} numbers will be validated.` });
+    }
+
     for (let i = 0; i < processLimit; i++) {
       if (!processingRef.current) break;
 
@@ -274,9 +278,8 @@ export default function LeadPulseDashboard() {
       let retryCount = 0;
       let validated = false;
 
-      while (retryCount < 2 && !validated) {
+      while (retryCount < 2 && !validated && processingRef.current) {
         try {
-          // 1. Get Key from Backend
           const keyRes = await getValidationKey(formattedUser.email);
           if (!keyRes.success) {
             toast({ variant: "destructive", title: "Key Error", description: keyRes.message });
@@ -285,7 +288,6 @@ export default function LeadPulseDashboard() {
 
           const { apiKey, rapidKey } = keyRes;
 
-          // 2. Direct Fetch to RapidAPI
           const rapidResponse = await fetch(
             `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${currentNumber}&access_key=${apiKey}`,
             {
@@ -298,7 +300,6 @@ export default function LeadPulseDashboard() {
           );
 
           if (rapidResponse.status === 429) {
-            toast({ title: "Rate Limit", description: "API rate limit hit. Retrying with new key..." });
             await new Promise(r => setTimeout(r, 1000));
             retryCount++;
             continue;
@@ -308,7 +309,6 @@ export default function LeadPulseDashboard() {
 
           const rapidData = await rapidResponse.json();
 
-          // 3. Report Success to Backend
           const reportRes = await reportValidationSuccess({
             email: formattedUser.email,
             number: currentNumber,
@@ -316,7 +316,6 @@ export default function LeadPulseDashboard() {
           });
 
           if (reportRes.success) {
-            // Update UI State
             const newResult: ValidationResult = {
               id: Math.random().toString(36).substr(2, 9),
               number: rapidData.number || currentNumber,
@@ -334,7 +333,6 @@ export default function LeadPulseDashboard() {
             else if (lineType.includes("mobile")) setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
             else setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
 
-            // Update Credits
             const newCredits = Number(reportRes.remainingCredits);
             setCredits(newCredits);
             const updatedUser = { ...formattedUser, credits: newCredits };
@@ -342,10 +340,18 @@ export default function LeadPulseDashboard() {
             
             validated = true;
           } else {
-            throw new Error(reportRes.message || "Reporting failed");
+            // Handle reporting failure without crashing
+            const errorMsg = reportRes.message || "Reporting failed";
+            toast({ variant: "destructive", title: "Sync Error", description: errorMsg });
+            
+            if (errorMsg === "Invalid sync") {
+              setIsProcessing(false);
+              processingRef.current = false;
+              return; 
+            }
+            break; 
           }
         } catch (error: any) {
-          console.error("Validation loop error:", error);
           retryCount++;
           if (retryCount >= 2) {
              toast({ variant: "destructive", title: "Process Error", description: `Failed for ${currentNumber}` });
@@ -355,7 +361,6 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
       
-      // 2-Second Delay between successful validations
       if (i < processLimit - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 2000));
       }
