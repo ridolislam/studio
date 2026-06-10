@@ -148,8 +148,9 @@ export default function LeadPulseDashboard() {
       setIsLoadingHistory(true);
       const result = await getUserHistory({ email: formattedUser.email });
       if (result && result.success) {
-        setHistory(result.history || []);
-        setFilteredHistory(result.history || []);
+        const historyData = Array.isArray(result.history) ? result.history : [];
+        setHistory(historyData);
+        setFilteredHistory(historyData);
       }
       setIsLoadingHistory(false);
     } catch (e) {
@@ -174,7 +175,7 @@ export default function LeadPulseDashboard() {
     if (!file) return;
 
     const reader = new FileReader();
-    const extension = file.name?.split('.').pop()?.toLowerCase() || "";
+    const extension = (file.name || "").split('.').pop()?.toLowerCase() || "";
 
     setIsExtracting(true);
 
@@ -677,7 +678,9 @@ export default function LeadPulseDashboard() {
                           <TableCell className="py-6 px-8">
                             <div className="flex items-center gap-3">
                               <Calendar className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-xs font-bold font-code">{new Date(item.date).toLocaleString()}</span>
+                              <span className="text-xs font-bold font-code">
+                                {item.date ? new Date(item.date).toLocaleString() : "N/A"}
+                              </span>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -696,7 +699,9 @@ export default function LeadPulseDashboard() {
                                 "h-2 w-2 rounded-full",
                                 item.type === 'Payment' ? "bg-green-500" : "bg-blue-500"
                               )} />
-                              <span className="text-sm font-bold italic truncate max-w-[250px] md:max-w-none">{item.description}</span>
+                              <span className="text-sm font-bold italic truncate max-w-[250px] md:max-w-none">
+                                {item.description || "No description"}
+                              </span>
                             </div>
                           </TableCell>
                           <TableCell className="text-right px-8">
@@ -705,7 +710,7 @@ export default function LeadPulseDashboard() {
                                  "text-lg font-black italic",
                                  item.type === 'Payment' ? "text-green-500" : "text-primary"
                                )}>
-                                 {item.amount}
+                                 {item.amount || "0"}
                                </span>
                                <ArrowRight className="h-3 w-3 opacity-30 group-hover:opacity-100 transition-all group-hover:translate-x-1" />
                             </div>

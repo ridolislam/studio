@@ -43,8 +43,9 @@ export default function FullHistoryPage() {
     try {
       const res = await getUserHistory({ email });
       if (res && res.success) {
-        setHistory(res.history || []);
-        setFiltered(res.history || []);
+        const historyData = Array.isArray(res.history) ? res.history : [];
+        setHistory(historyData);
+        setFiltered(historyData);
       }
     } catch (e) {
       console.error("Fetch history failed");
