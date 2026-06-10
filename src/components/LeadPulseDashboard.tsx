@@ -64,7 +64,7 @@ interface ValidationResult {
 interface HistoryItem {
   _id?: string;
   date: string;
-  type: 'Work' | 'Payment';
+  type: string;
   description: string;
   amount: string;
   impact?: string;
@@ -117,14 +117,11 @@ export default function LeadPulseDashboard() {
       if (formattedUser && formattedUser.email) {
         const res = await syncUserProfile(formattedUser.email);
         if (res && res.success) {
-          const freshCredits = Number(res.credits);
+          const freshCredits = Number(res.credits || 0);
           setCredits(freshCredits);
           
           const updatedUser = { ...formattedUser, credits: freshCredits };
           localStorage.setItem('user', JSON.stringify(updatedUser));
-          
-          const creditEl = document.getElementById('creditBalance');
-          if (creditEl) creditEl.innerText = freshCredits.toString();
         } else {
           setCredits(Number(formattedUser.credits) || 0);
         }
@@ -152,8 +149,9 @@ export default function LeadPulseDashboard() {
         setHistory(historyData);
         setFilteredHistory(historyData);
       }
-      setIsLoadingHistory(false);
     } catch (e) {
+      console.error("History fetch error", e);
+    } finally {
       setIsLoadingHistory(false);
     }
   };
@@ -161,13 +159,19 @@ export default function LeadPulseDashboard() {
   useEffect(() => {
     const search = String(historySearch || "").toLowerCase();
     const historyArray = Array.isArray(history) ? history : [];
-    const filtered = historyArray.filter(item => {
-      if (!item) return false;
-      const desc = String(item.description || "").toLowerCase();
-      const type = String(item.type || "").toLowerCase();
-      return desc.includes(search) || type.includes(search);
-    });
-    setFilteredHistory(filtered);
+    
+    try {
+      const filtered = historyArray.filter(item => {
+        if (!item || typeof item !== 'object') return false;
+        const desc = String(item.description || "").toLowerCase();
+        const type = String(item.type || "").toLowerCase();
+        return desc.includes(search) || type.includes(search);
+      });
+      setFilteredHistory(filtered);
+    } catch (e) {
+      console.error("Filtering error", e);
+      setFilteredHistory([]);
+    }
   }, [historySearch, history]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -356,9 +360,6 @@ export default function LeadPulseDashboard() {
           const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
           const formattedStored = currentStored?.data || currentStored?.user || currentStored;
           localStorage.setItem('user', JSON.stringify({ ...formattedStored, credits: newCredits }));
-          
-          const creditEl = document.getElementById('creditBalance');
-          if (creditEl) creditEl.innerText = newCredits.toString();
         } else {
           if (String(reportData?.message || "").toLowerCase().includes("insufficient")) {
             toast({ variant: "destructive", title: "Balance Exhausted", description: "Please refill your credits." });

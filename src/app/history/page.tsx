@@ -48,7 +48,7 @@ export default function FullHistoryPage() {
         setFiltered(historyData);
       }
     } catch (e) {
-      console.error("Fetch history failed");
+      console.error("Fetch history failed", e);
     } finally {
       setLoading(false);
     }
@@ -57,13 +57,19 @@ export default function FullHistoryPage() {
   useEffect(() => {
     const searchLower = String(search || "").toLowerCase();
     const historyArray = Array.isArray(history) ? history : [];
-    const results = historyArray.filter(h => {
-      if (!h) return false;
-      const desc = String(h.description || "").toLowerCase();
-      const type = String(h.type || "").toLowerCase();
-      return desc.includes(searchLower) || type.includes(searchLower);
-    });
-    setFiltered(results);
+    
+    try {
+      const results = historyArray.filter(h => {
+        if (!h || typeof h !== 'object') return false;
+        const desc = String(h.description || "").toLowerCase();
+        const type = String(h.type || "").toLowerCase();
+        return desc.includes(searchLower) || type.includes(searchLower);
+      });
+      setFiltered(results);
+    } catch (e) {
+      console.error("Filtering error on history page", e);
+      setFiltered([]);
+    }
   }, [search, history]);
 
   return (
@@ -122,7 +128,7 @@ export default function FullHistoryPage() {
                       </TableRow>
                     ) : (
                       filtered.map((item, i) => (
-                        <TableRow key={i} className="border-white/5 hover:bg-white/5">
+                        <TableRow key={item._id || i} className="border-white/5 hover:bg-white/5">
                           <TableCell className="py-6 font-code text-xs">
                             <div className="flex items-center gap-3">
                               <Calendar className="h-4 w-4 text-muted-foreground" />
