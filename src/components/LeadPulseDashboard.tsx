@@ -57,6 +57,8 @@ interface ValidationResult {
   location: string;
   status: "success" | "invalid";
   timestamp: string;
+  source?: string;
+  businessName?: string;
 }
 
 interface HistoryItem {
@@ -82,6 +84,7 @@ export default function LeadPulseDashboard() {
   const [historySearch, setHistorySearch] = useState("");
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
 
   const [counts, setCounts] = useState({
     mobile: 0,
@@ -95,13 +98,15 @@ export default function LeadPulseDashboard() {
   const processingRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize and Sync Profile
+  useEffect(() => {
+    setIsMounted(true);
+    fetchAndSyncProfile();
+    fetchHistory();
+  }, []);
+
   const fetchAndSyncProfile = async () => {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-    if (!userStr) {
-      router.push("/login");
-      return;
-    }
+    if (!userStr) return;
     
     setIsSyncing(true);
     try {
@@ -111,28 +116,24 @@ export default function LeadPulseDashboard() {
       if (formattedUser && formattedUser.email) {
         const res = await syncUserProfile(formattedUser.email);
         if (res && res.success) {
-          setCredits(Number(res.credits));
-          const updatedUser = { ...formattedUser, credits: res.credits };
+          const freshCredits = Number(res.credits);
+          setCredits(freshCredits);
+          
+          const updatedUser = { ...formattedUser, credits: freshCredits };
           localStorage.setItem('user', JSON.stringify(updatedUser));
           
-          // Update the credit balance in the header if it exists
           const creditEl = document.getElementById('creditBalance');
-          if (creditEl) creditEl.innerText = res.credits.toString();
+          if (creditEl) creditEl.innerText = freshCredits.toString();
         } else {
           setCredits(Number(formattedUser.credits) || 0);
         }
       }
     } catch (e) {
-      console.error("Dashboard sync error:", e);
+      console.error("Dashboard sync fail");
     } finally {
       setIsSyncing(false);
     }
   };
-
-  useEffect(() => {
-    fetchAndSyncProfile();
-    fetchHistory();
-  }, []);
 
   const fetchHistory = async () => {
     const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -256,9 +257,9 @@ export default function LeadPulseDashboard() {
     const userObj = JSON.parse(userStr);
     const formattedUser = userObj.data || userObj.user || userObj;
     
-    // Sync credits right before starting
+    // Refresh credits before starting to be sure
     const userRes = await syncUserProfile(formattedUser.email);
-    let currentCredits = Number(userRes?.credits || credits);
+    let currentCredits = Number(userRes?.credits ?? credits);
 
     if (currentCredits <= 0) {
       toast({ variant: "destructive", title: "Insufficient Credits", description: "Please add credits to continue." });
@@ -348,30 +349,27 @@ export default function LeadPulseDashboard() {
           const newCredits = Number(reportData.remainingCredits);
           setCredits(newCredits); 
           
-          // Update local storage so refreshes don't reset balance
           const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
           const formattedStored = currentStored.data || currentStored.user || currentStored;
           localStorage.setItem('user', JSON.stringify({ ...formattedStored, credits: newCredits }));
           
-          // Sync header UI
           const creditEl = document.getElementById('creditBalance');
           if (creditEl) creditEl.innerText = newCredits.toString();
-
-          // Live history sync
-          fetchHistory();
         } else {
-          toast({ variant: "destructive", title: "Sync Error", description: reportData.message || "Failed to sync credits" });
-          if (reportData.message?.toLowerCase().includes("insufficient")) break;
+          // If sync fails with "insufficient", we must stop
+          if (reportData.message?.toLowerCase().includes("insufficient")) {
+            toast({ variant: "destructive", title: "Balance Exhausted", description: "Please refill your credits." });
+            break;
+          }
         }
 
       } catch (error: any) {
         console.error("Validation error:", error);
-        toast({ variant: "destructive", title: "Error", description: `Failed to process ${currentNumber}` });
       }
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
       
-      // Delay to avoid 429
+      // Mandatory delay between requests
       if (i < processLimit - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 2000));
       }
@@ -411,6 +409,8 @@ export default function LeadPulseDashboard() {
     XLSX.writeFile(wb, `numcheckr_${category}_leads_${Date.now()}.xlsx`);
   };
 
+  if (!isMounted) return null;
+
   return (
     <div className="space-y-8">
       <Tabs defaultValue="tool" className="w-full">
@@ -427,7 +427,7 @@ export default function LeadPulseDashboard() {
           <Card className="bg-primary/5 border-primary/20 px-6 py-3 rounded-2xl flex items-center gap-4">
             <div className="flex flex-col items-end">
               <p className="text-[10px] font-black uppercase text-primary/70 leading-none mb-1">Live Balance</p>
-              <h2 className="text-2xl font-black italic leading-none">{credits}</h2>
+              <h2 className="text-2xl font-black italic leading-none">{credits ?? "..."}</h2>
             </div>
             <div className="h-8 w-px bg-primary/20" />
             <Button 

@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import LeadPulseDashboard from "@/components/LeadPulseDashboard";
-import { LogOut, Plus, User, Wallet, RefreshCcw, LayoutPanelLeft } from "lucide-react";
+import { LogOut, Plus, User, Wallet, RefreshCcw, LayoutPanelLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { 
   DropdownMenu, 
@@ -26,7 +26,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setIsMounted(true);
-    const userStr = localStorage.getItem('user');
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
     
     if (!userStr) {
       router.push("/login");
@@ -37,7 +37,7 @@ export default function DashboardPage() {
         
         if (formattedUser && formattedUser.email) {
           setUser(formattedUser);
-          // Force an immediate sync on mount
+          // Immediate sync on mount to get real credits
           syncProfile(formattedUser.email);
         } else {
           localStorage.removeItem('user');
@@ -50,29 +50,12 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // Regular sync every 30 seconds to keep it fresh
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const userStr = localStorage.getItem('user');
-      if (userStr) {
-        try {
-          const parsed = JSON.parse(userStr);
-          const formattedUser = parsed.data || parsed.user || parsed;
-          if (formattedUser && formattedUser.email) {
-            syncProfile(formattedUser.email);
-          }
-        } catch (e) {}
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
   /**
    * Syncs user profile data based on server-side logic.
    * Updates UI and localStorage with the absolute truth from server.
    */
   const syncProfile = async (email: string) => {
-    if (!email) return;
+    if (!email || !isMounted) return;
     setIsSyncing(true);
     try {
       const res = await syncUserProfile(email);
@@ -83,20 +66,18 @@ export default function DashboardPage() {
             const userData = JSON.parse(userStr);
             const formattedUser = userData.data || userData.user || userData;
             
-            // Always update if server returns successful sync, 
-            // ensuring we have the most recent credit count.
             const updatedUser = { ...formattedUser, credits: res.credits };
             localStorage.setItem('user', JSON.stringify(updatedUser));
             setUser(updatedUser);
             
-            // Update live element
+            // Safe DOM update
             const creditElement = document.getElementById('creditBalance');
             if (creditElement) creditElement.innerText = res.credits.toString();
           } catch (e) {}
         }
       }
     } catch (err) {
-      console.log("Sync failed.");
+      console.error("Profile sync error");
     } finally {
       setIsSyncing(false);
     }
@@ -110,7 +91,7 @@ export default function DashboardPage() {
   if (!isMounted || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <RefreshCcw className="h-10 w-10 animate-spin text-primary opacity-20" />
+        <Loader2 className="h-10 w-10 animate-spin text-primary opacity-20" />
       </div>
     );
   }
@@ -138,7 +119,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase text-muted-foreground leading-none mb-1">Available Credits</span>
-                <span id="creditBalance" className="text-xl font-black italic leading-none">{user.credits || 0}</span>
+                <span id="creditBalance" className="text-xl font-black italic leading-none">{user.credits ?? "..."}</span>
               </div>
               <Button 
                 variant="ghost" 
