@@ -113,12 +113,12 @@ export default function AdminPanel() {
     
     setIsUpdating(userId);
     const res = await updateAdminUser({ userId, credits: parseInt(newCredits) });
-    if (res.success) {
+    if (res && res.success) {
       addLog(`[USER] Updated credits for ${userId} to ${newCredits}`);
       toast({ title: "Updated", description: "Credit Updated Successfully" });
       fetchData();
     } else {
-      toast({ variant: "destructive", title: "Error", description: res.message || "Failed to update user." });
+      toast({ variant: "destructive", title: "Error", description: res?.message || "Failed to update user." });
     }
     setIsUpdating(null);
   };
@@ -131,13 +131,13 @@ export default function AdminPanel() {
     
     try {
       const res = await clearAdminKeys();
-      if (res.success) {
+      if (res && res.success) {
         addLog(`[SYSTEM] ${res.message}`);
         toast({ title: "Success", description: res.message });
         fetchData();
       } else {
-        addLog(`[ERROR] ${res.message || "Failed to clear keys"}`);
-        toast({ variant: "destructive", title: "Error", description: res.message || "Failed to clear keys" });
+        addLog(`[ERROR] ${res?.message || "Failed to clear keys"}`);
+        toast({ variant: "destructive", title: "Error", description: res?.message || "Failed to clear keys" });
       }
     } catch (error) {
       toast({ variant: "destructive", title: "Error", description: "Connection failed" });
@@ -170,12 +170,12 @@ export default function AdminPanel() {
         addLog(`[SYSTEM] Uploading ${keys.length} API keys...`);
         const res = await uploadAdminKeys({ keys });
         
-        if (res.success) {
+        if (res && res.success) {
           addLog(`[SYSTEM] Keys uploaded: ${res.message}`);
           toast({ title: "Success", description: res.message });
           fetchData();
         } else {
-          toast({ variant: "destructive", title: "Upload Failed", description: res.message });
+          toast({ variant: "destructive", title: "Upload Failed", description: res?.message });
         }
       } catch (err) {
         toast({ variant: "destructive", title: "Error", description: "Failed to parse Excel file." });
@@ -234,6 +234,14 @@ export default function AdminPanel() {
       </div>
     );
   }
+
+  const usersArray = Array.isArray(users) ? users : [];
+  const searchLower = String(search || "").toLowerCase();
+  const filteredUsers = usersArray.filter(u => {
+    if (!u) return false;
+    const email = String(u.email || "").toLowerCase();
+    return email.includes(searchLower);
+  });
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -360,20 +368,20 @@ export default function AdminPanel() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {loading && users.length === 0 ? (
+                      {loading && filteredUsers.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={4} className="h-64 text-center">
                             <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
                             <p className="font-black italic uppercase text-xs">Fetching Server Data...</p>
                           </TableCell>
                         </TableRow>
-                      ) : users.filter(u => u.email?.toLowerCase().includes(search.toLowerCase())).map((user) => (
+                      ) : filteredUsers.map((user) => (
                         <TableRow key={user._id || user.email} className="border-white/5 hover:bg-white/5 h-20 group transition-colors">
                           <TableCell className="px-6 md:px-8">
-                            <span className="font-black italic text-base md:text-lg">{user.email}</span>
+                            <span className="font-black italic text-base md:text-lg">{user.email || "N/A"}</span>
                           </TableCell>
                           <TableCell>
-                            <span className="font-black italic text-lg text-primary">{user.credits}</span>
+                            <span className="font-black italic text-lg text-primary">{user.credits ?? 0}</span>
                           </TableCell>
                           <TableCell>
                             <span className="text-xs font-bold text-muted-foreground uppercase">{user.history?.length || 0} events</span>
@@ -382,7 +390,7 @@ export default function AdminPanel() {
                             <Button 
                               className="bg-primary hover:bg-primary/90 rounded-xl h-10 md:h-12 font-black italic px-4 md:px-6 shadow-lg shadow-primary/10 transition-all active:scale-95"
                               disabled={isUpdating === (user._id || user.email)}
-                              onClick={() => handleUpdateCredits(user._id || user.email, user.credits)}
+                              onClick={() => handleUpdateCredits(user._id || user.email, user.credits || 0)}
                             >
                               {isUpdating === (user._id || user.email) ? <Loader2 className="h-4 w-4 animate-spin" /> : "EDIT"}
                             </Button>

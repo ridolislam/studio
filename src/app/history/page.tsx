@@ -21,30 +21,45 @@ export default function FullHistoryPage() {
   const router = useRouter();
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
     const userStr = localStorage.getItem('user');
     if (!userStr) {
       router.push("/login");
       return;
     }
-    fetchHistory(JSON.parse(userStr).email);
+    try {
+      const user = JSON.parse(userStr);
+      const email = user?.data?.email || user?.user?.email || user?.email;
+      if (email) fetchHistory(email);
+      else router.push("/login");
+    } catch (e) {
+      router.push("/login");
+    }
   }, [router]);
 
   const fetchHistory = async (email: string) => {
+    if (!email) return;
     setLoading(true);
-    const res = await getUserHistory({ email });
-    if (res.success) {
-      setHistory(res.history || []);
-      setFiltered(res.history || []);
+    try {
+      const res = await getUserHistory({ email });
+      if (res && res.success) {
+        setHistory(res.history || []);
+        setFiltered(res.history || []);
+      }
+    } catch (e) {
+      console.error("Fetch history failed");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
-    const searchLower = (search || "").toLowerCase();
-    const results = (history || []).filter(h => {
+    const searchLower = String(search || "").toLowerCase();
+    const historyArray = Array.isArray(history) ? history : [];
+    const results = historyArray.filter(h => {
       if (!h) return false;
-      const desc = (h.description || "").toLowerCase();
-      const type = (h.type || "").toLowerCase();
+      const desc = String(h.description || "").toLowerCase();
+      const type = String(h.type || "").toLowerCase();
       return desc.includes(searchLower) || type.includes(searchLower);
     });
     setFiltered(results);
@@ -110,7 +125,7 @@ export default function FullHistoryPage() {
                           <TableCell className="py-6 font-code text-xs">
                             <div className="flex items-center gap-3">
                               <Calendar className="h-4 w-4 text-muted-foreground" />
-                              {new Date(item.date).toLocaleString()}
+                              {item.date ? new Date(item.date).toLocaleString() : "N/A"}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -121,11 +136,11 @@ export default function FullHistoryPage() {
                               {item.type === 'Payment' ? 'SUCCESS' : 'WORK'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="font-bold italic text-sm">{item.description}</TableCell>
+                          <TableCell className="font-bold italic text-sm">{item.description || "No description"}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-2 text-lg font-black italic">
                               <span className={item.type === 'Payment' ? "text-green-500" : "text-primary"}>
-                                {item.amount}
+                                {item.amount || "0"}
                               </span>
                               <ArrowRight className="h-4 w-4 opacity-20" />
                             </div>

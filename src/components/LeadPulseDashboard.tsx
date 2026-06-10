@@ -105,13 +105,14 @@ export default function LeadPulseDashboard() {
   }, []);
 
   const fetchAndSyncProfile = async () => {
-    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    if (typeof window === 'undefined') return;
+    const userStr = localStorage.getItem('user');
     if (!userStr) return;
     
     setIsSyncing(true);
     try {
       const user = JSON.parse(userStr);
-      const formattedUser = user.data || user.user || user;
+      const formattedUser = user?.data || user?.user || user;
       
       if (formattedUser && formattedUser.email) {
         const res = await syncUserProfile(formattedUser.email);
@@ -136,16 +137,17 @@ export default function LeadPulseDashboard() {
   };
 
   const fetchHistory = async () => {
-    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    if (typeof window === 'undefined') return;
+    const userStr = localStorage.getItem('user');
     if (!userStr) return;
     try {
       const user = JSON.parse(userStr);
-      const formattedUser = user.data || user.user || user;
+      const formattedUser = user?.data || user?.user || user;
       if (!formattedUser || !formattedUser.email) return;
 
       setIsLoadingHistory(true);
       const result = await getUserHistory({ email: formattedUser.email });
-      if (result.success) {
+      if (result && result.success) {
         setHistory(result.history || []);
         setFilteredHistory(result.history || []);
       }
@@ -156,11 +158,12 @@ export default function LeadPulseDashboard() {
   };
 
   useEffect(() => {
-    const search = (historySearch || "").toLowerCase();
-    const filtered = (history || []).filter(item => {
+    const search = String(historySearch || "").toLowerCase();
+    const historyArray = Array.isArray(history) ? history : [];
+    const filtered = historyArray.filter(item => {
       if (!item) return false;
-      const desc = (item.description || "").toLowerCase();
-      const type = (item.type || "").toLowerCase();
+      const desc = String(item.description || "").toLowerCase();
+      const type = String(item.type || "").toLowerCase();
       return desc.includes(search) || type.includes(search);
     });
     setFilteredHistory(filtered);
@@ -171,7 +174,7 @@ export default function LeadPulseDashboard() {
     if (!file) return;
 
     const reader = new FileReader();
-    const extension = file.name.split('.').pop()?.toLowerCase();
+    const extension = file.name?.split('.').pop()?.toLowerCase() || "";
 
     setIsExtracting(true);
 
@@ -255,11 +258,14 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    if (typeof window === 'undefined') return;
+    const userStr = localStorage.getItem('user');
     if (!userStr) return;
     const userObj = JSON.parse(userStr);
-    const formattedUser = userObj.data || userObj.user || userObj;
+    const formattedUser = userObj?.data || userObj?.user || userObj;
     
+    if (!formattedUser?.email) return;
+
     const userRes = await syncUserProfile(formattedUser.email);
     let currentCredits = Number(userRes?.credits ?? credits);
 
@@ -273,12 +279,6 @@ export default function LeadPulseDashboard() {
     setProgress(0);
 
     const processLimit = Math.min(lines.length, currentCredits);
-    if (lines.length > currentCredits) {
-      toast({ 
-        title: "Limited Selection", 
-        description: `You have ${currentCredits} credits. Only the first ${currentCredits} numbers will be processed.` 
-      });
-    }
 
     for (let i = 0; i < processLimit; i++) {
       if (!processingRef.current) break;
@@ -287,8 +287,8 @@ export default function LeadPulseDashboard() {
 
       try {
         const keyRes = await getValidationKey(formattedUser.email);
-        if (!keyRes.success) {
-          toast({ variant: "destructive", title: "Key Error", description: keyRes.message });
+        if (!keyRes || !keyRes.success) {
+          toast({ variant: "destructive", title: "Key Error", description: keyRes?.message || "Failed to fetch validation keys" });
           break;
         }
 
@@ -330,7 +330,7 @@ export default function LeadPulseDashboard() {
 
         setResults(prev => [newResult, ...prev]);
 
-        const lineType = (rapidData.line_type || "").toLowerCase();
+        const lineType = String(rapidData.line_type || "").toLowerCase();
         if (!rapidData.valid) setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
         else if (lineType.includes("mobile")) setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
         else setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
@@ -348,18 +348,18 @@ export default function LeadPulseDashboard() {
         
         const reportData = await reportResponse.json();
 
-        if (reportData.success) {
+        if (reportData && reportData.success) {
           const newCredits = Number(reportData.remainingCredits);
           setCredits(newCredits); 
           
           const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
-          const formattedStored = currentStored.data || currentStored.user || currentStored;
+          const formattedStored = currentStored?.data || currentStored?.user || currentStored;
           localStorage.setItem('user', JSON.stringify({ ...formattedStored, credits: newCredits }));
           
           const creditEl = document.getElementById('creditBalance');
           if (creditEl) creditEl.innerText = newCredits.toString();
         } else {
-          if (reportData.message?.toLowerCase().includes("insufficient")) {
+          if (String(reportData?.message || "").toLowerCase().includes("insufficient")) {
             toast({ variant: "destructive", title: "Balance Exhausted", description: "Please refill your credits." });
             break;
           }
@@ -388,9 +388,10 @@ export default function LeadPulseDashboard() {
 
   const downloadCategory = (category: string) => {
     let filtered;
-    if (category === 'mobile') filtered = results.filter(r => (r.type || "").toLowerCase().includes('mobile'));
-    else if (category === 'landline') filtered = results.filter(r => (r.type || "").toLowerCase().includes('landline'));
-    else if (category === 'invalid') filtered = results.filter(r => r.status === 'invalid');
+    const catLower = String(category || "").toLowerCase();
+    if (catLower === 'mobile') filtered = results.filter(r => String(r.type || "").toLowerCase().includes('mobile'));
+    else if (catLower === 'landline') filtered = results.filter(r => String(r.type || "").toLowerCase().includes('landline'));
+    else if (catLower === 'invalid') filtered = results.filter(r => r.status === 'invalid');
     else filtered = results;
 
     if (filtered.length === 0) {
@@ -722,4 +723,3 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
-
