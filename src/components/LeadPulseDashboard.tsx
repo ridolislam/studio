@@ -179,8 +179,14 @@ export default function LeadPulseDashboard() {
           const sheetName = workbook.SheetNames[0];
           rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
         } else {
+          // Robust parsing for CSV/TXT
           const text = data.toString();
-          rows = text.split('\n').map(line => line.split(','));
+          rows = text.split(/\r?\n/).filter(line => line.trim() !== "").map(line => {
+            // Handle comma separated and tab separated
+            if (line.includes(',')) return line.split(',');
+            if (line.includes('\t')) return line.split('\t');
+            return [line];
+          });
         }
 
         const extractedNumbers: string[] = [];
@@ -196,6 +202,7 @@ export default function LeadPulseDashboard() {
           row.forEach((cell) => {
             const cellVal = String(cell || "").trim();
             const cleanCell = cellVal.replace(/[\s-()]/g, '');
+            // Check for numbers (7 to 15 digits, optional +)
             if (!foundNumber && /^\+?[0-9]{7,15}$/.test(cleanCell)) {
               foundNumber = cleanCell;
             }
@@ -203,7 +210,7 @@ export default function LeadPulseDashboard() {
 
           if (foundNumber) {
             extractedNumbers.push(foundNumber);
-            if (sourceLink.startsWith('http')) {
+            if (sourceLink.toLowerCase().startsWith('http')) {
               extractedLinksCount++;
             }
           }
@@ -221,7 +228,8 @@ export default function LeadPulseDashboard() {
           toast({ variant: "destructive", title: "No Leads Found", description: "No valid numbers found in the file." });
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Scan Failed", description: "Invalid file format." });
+        console.error("File processing error:", err);
+        toast({ variant: "destructive", title: "Scan Failed", description: "Invalid file format or parsing error." });
       } finally {
         setIsExtracting(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -247,8 +255,13 @@ export default function LeadPulseDashboard() {
     const userObj = JSON.parse(userStr);
     const formattedUser = userObj.data || userObj.user || userObj;
     
+    // First, sync profile to get the most accurate credit count
     await fetchAndSyncProfile();
-    let currentCredits = credits;
+    
+    // Get current credits from state after sync (which updates the state)
+    // We need to use a local variable to track credits within this execution block
+    const userRes = await syncUserProfile(formattedUser.email);
+    let currentCredits = Number(userRes?.credits || credits);
 
     if (currentCredits <= 0) {
       toast({ variant: "destructive", title: "Insufficient Credits", description: "Please add credits to continue." });
@@ -259,13 +272,19 @@ export default function LeadPulseDashboard() {
     processingRef.current = true;
     setProgress(0);
 
+    // Limit processing to available credits
     const processLimit = Math.min(lines.length, currentCredits);
+    if (lines.length > currentCredits) {
+      toast({ 
+        title: "Limited Selection", 
+        description: `You have ${currentCredits} credits. Only the first ${currentCredits} numbers will be processed.` 
+      });
+    }
 
     for (let i = 0; i < processLimit; i++) {
       if (!processingRef.current) break;
 
       const currentNumber = lines[i];
-      let validated = false;
 
       try {
         // 1. Get Key from Backend
@@ -277,7 +296,7 @@ export default function LeadPulseDashboard() {
 
         const { apiKey, rapidKey } = keyRes;
 
-        // 2. Direct API Call to RapidAPI
+        // 2. Direct API Call to RapidAPI (Using user's IP)
         const rapidResponse = await fetch(
           `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${currentNumber}&access_key=${apiKey}`,
           {
@@ -290,9 +309,11 @@ export default function LeadPulseDashboard() {
         );
 
         if (rapidResponse.status === 429) {
-          toast({ title: "Rate Limit Detected", description: "Waiting for 2 seconds before next request..." });
+          toast({ title: "Rate Limit (429)", description: "Waiting for 2 seconds before retrying..." });
           await new Promise(r => setTimeout(r, 2000));
-          continue; // Try next number
+          // Retry logic: we don't increment i here to retry the same number
+          i--; 
+          continue;
         }
 
         if (!rapidResponse.ok) throw new Error("RapidAPI Request Failed");
@@ -321,14 +342,15 @@ export default function LeadPulseDashboard() {
         else if (lineType.includes("mobile")) setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
         else setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
 
-        // 4. Report Success to Backend
+        // 4. Report Success to Backend to subtract credit
         const reportResponse = await fetch('https://numcheckr.onrender.com/api/user/report-success', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: formattedUser.email,
             key: apiKey,
-            number: currentNumber
+            number: currentNumber,
+            result: rapidData
           })
         });
         
@@ -336,14 +358,18 @@ export default function LeadPulseDashboard() {
 
         if (reportData.success) {
           const newCredits = Number(reportData.remainingCredits);
-          setCredits(newCredits);
+          setCredits(newCredits); // Update UI state
           
+          // Update local storage to keep sync
           const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
           const formattedStored = currentStored.data || currentStored.user || currentStored;
           localStorage.setItem('user', JSON.stringify({ ...formattedStored, credits: newCredits }));
           
-          validated = true;
+          // Update credit balance in DOM if it exists (from DashboardPage logic)
+          const creditEl = document.getElementById('creditBalance');
+          if (creditEl) creditEl.innerText = newCredits.toString();
         } else {
+          // If reporting fails (e.g. sync error), stop processing
           toast({ variant: "destructive", title: "Sync Error", description: reportData.message || "Failed to sync credits" });
           if (reportData.message?.toLowerCase().includes("insufficient")) break;
         }
@@ -355,9 +381,9 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
       
-      // Delay between numbers to maintain stability
+      // Delay (Sleep) between numbers to prevent API pressure
       if (i < processLimit - 1 && processingRef.current) {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
 
@@ -443,7 +469,7 @@ export default function LeadPulseDashboard() {
                     className="w-full h-12 rounded-xl border-dashed border-primary/30 hover:bg-primary/5 transition-all"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <Upload className="h-4 w-4 mr-2" /> Upload Leads (XLSX/CSV)
+                    <Upload className="h-4 w-4 mr-2" /> Upload Leads (CSV/XLSX)
                   </Button>
                   <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept=".xlsx,.xls,.csv,.txt" />
 
@@ -531,7 +557,7 @@ export default function LeadPulseDashboard() {
                 <div className="flex justify-between text-[10px] font-black uppercase tracking-[0.2em]">
                   <span className="flex items-center gap-2">
                     {isProcessing ? (
-                      <><div className="h-2 w-2 rounded-full bg-primary animate-pulse" /> Client Engine: User IP Processing</>
+                      <><div className="h-2 w-2 rounded-full bg-primary animate-pulse" /> Engine: Validating using user IP</>
                     ) : "Engine Status: Idle"}
                   </span>
                   <span className="text-primary">{progress}% Complete</span>
