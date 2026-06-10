@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -17,7 +18,8 @@ import {
   Link as LinkIcon,
   History as HistoryIcon,
   Calendar,
-  ArrowRight
+  ArrowRight,
+  RefreshCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -76,6 +78,7 @@ export default function LeadPulseDashboard() {
   const [filteredHistory, setFilteredHistory] = useState<HistoryItem[]>([]);
   const [historySearch, setHistorySearch] = useState("");
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [counts, setCounts] = useState({
     mobile: 0,
@@ -89,39 +92,45 @@ export default function LeadPulseDashboard() {
   const processingRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const loadAndSync = async () => {
-      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
-      if (!userStr) {
-        router.push("/login");
-        return;
-      }
-      try {
-        const user = JSON.parse(userStr);
-        const formattedUser = user.data || user.user || user;
+  // Initialize and Sync Profile
+  const fetchAndSyncProfile = async () => {
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    if (!userStr) {
+      router.push("/login");
+      return;
+    }
+    
+    setIsSyncing(true);
+    try {
+      const user = JSON.parse(userStr);
+      const formattedUser = user.data || user.user || user;
+      
+      if (formattedUser && formattedUser.email) {
+        setCredits(Number(formattedUser.credits) || 0);
         
-        if (formattedUser && formattedUser.email) {
-          setCredits(Number(formattedUser.credits) || 0);
-          
-          const res = await syncUserProfile(formattedUser.email);
-          if (res && res.success) {
-            setCredits(Number(res.credits));
-            const updatedUser = { ...formattedUser, credits: res.credits };
-            localStorage.setItem('user', JSON.stringify(updatedUser));
-          }
-          fetchHistory();
+        const res = await syncUserProfile(formattedUser.email);
+        if (res && res.success) {
+          setCredits(Number(res.credits));
+          const updatedUser = { ...formattedUser, credits: res.credits };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
         }
-      } catch (e) {
-        console.error("Dashboard init error:", e);
       }
-    };
-
-    loadAndSync();
-  }, [router]);
+    } catch (e) {
+      console.error("Dashboard sync error:", e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+    fetchAndSyncProfile();
+    fetchHistory();
+  }, []);
+
+  // Background sync check
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const userStr = localStorage.getItem('user');
       if (userStr) {
         try {
           const user = JSON.parse(userStr);
@@ -131,9 +140,7 @@ export default function LeadPulseDashboard() {
           }
         } catch (e) {}
       }
-    };
-
-    const interval = setInterval(handleStorageChange, 3000);
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -255,7 +262,12 @@ export default function LeadPulseDashboard() {
     const userObj = JSON.parse(userStr);
     const formattedUser = userObj.data || userObj.user || userObj;
     
-    let currentCredits = Number(formattedUser.credits) || 0;
+    // Refresh credits before starting
+    await fetchAndSyncProfile();
+    const latestUserStr = localStorage.getItem('user');
+    const latestUser = latestUserStr ? JSON.parse(latestUserStr) : formattedUser;
+    let currentCredits = Number(latestUser.credits) || 0;
+
     if (currentCredits <= 0) {
       toast({ variant: "destructive", title: "Insufficient Credits", description: "Please top up to validate numbers." });
       return;
@@ -335,23 +347,28 @@ export default function LeadPulseDashboard() {
 
             const newCredits = Number(reportRes.remainingCredits);
             setCredits(newCredits);
-            const updatedUser = { ...formattedUser, credits: newCredits };
-            localStorage.setItem('user', JSON.stringify(updatedUser));
+            
+            // Sync local storage
+            const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
+            localStorage.setItem('user', JSON.stringify({ ...currentStored, credits: newCredits }));
             
             validated = true;
           } else {
-            // Handle reporting failure without crashing
+            // CRITICAL: Handle sync error gracefully
             const errorMsg = reportRes.message || "Reporting failed";
             toast({ variant: "destructive", title: "Sync Error", description: errorMsg });
             
-            if (errorMsg === "Invalid sync") {
+            // If it's a critical sync error, stop and refresh
+            if (errorMsg.toLowerCase().includes("sync") || errorMsg.toLowerCase().includes("insufficient")) {
               setIsProcessing(false);
               processingRef.current = false;
+              await fetchAndSyncProfile();
               return; 
             }
             break; 
           }
         } catch (error: any) {
+          console.error("Validation error:", error);
           retryCount++;
           if (retryCount >= 2) {
              toast({ variant: "destructive", title: "Process Error", description: `Failed for ${currentNumber}` });
@@ -361,6 +378,7 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
       
+      // Delay to avoid 429 errors (2 seconds as requested)
       if (i < processLimit - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 2000));
       }
@@ -416,7 +434,15 @@ export default function LeadPulseDashboard() {
               <h2 className="text-2xl font-black italic leading-none">{credits}</h2>
             </div>
             <div className="h-8 w-px bg-primary/20" />
-            <Zap className="h-6 w-6 text-primary animate-pulse" />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={fetchAndSyncProfile}
+              disabled={isSyncing}
+              className="h-10 w-10 rounded-xl bg-primary/10 hover:bg-primary/20"
+            >
+              <RefreshCcw className={cn("h-5 w-5 text-primary", isSyncing && "animate-spin")} />
+            </Button>
           </Card>
         </div>
 
