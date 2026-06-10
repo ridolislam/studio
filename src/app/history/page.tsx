@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -39,10 +40,12 @@ export default function FullHistoryPage() {
   };
 
   useEffect(() => {
-    const results = history.filter(h => 
-      h.description.toLowerCase().includes(search.toLowerCase()) ||
-      h.type.toLowerCase().includes(search.toLowerCase())
-    );
+    const searchLower = search.toLowerCase();
+    const results = history.filter(h => {
+      const desc = (h.description || "").toLowerCase();
+      const type = (h.type || "").toLowerCase();
+      return desc.includes(searchLower) || type.includes(searchLower);
+    });
     setFiltered(results);
   }, [search, history]);
 

@@ -156,10 +156,12 @@ export default function LeadPulseDashboard() {
   };
 
   useEffect(() => {
-    const filtered = history.filter(item => 
-      item.description.toLowerCase().includes(historySearch.toLowerCase()) ||
-      item.type.toLowerCase().includes(historySearch.toLowerCase())
-    );
+    const search = historySearch.toLowerCase();
+    const filtered = history.filter(item => {
+      const desc = (item.description || "").toLowerCase();
+      const type = (item.type || "").toLowerCase();
+      return desc.includes(search) || type.includes(search);
+    });
     setFilteredHistory(filtered);
   }, [historySearch, history]);
 
@@ -257,7 +259,6 @@ export default function LeadPulseDashboard() {
     const userObj = JSON.parse(userStr);
     const formattedUser = userObj.data || userObj.user || userObj;
     
-    // Refresh credits before starting to be sure
     const userRes = await syncUserProfile(formattedUser.email);
     let currentCredits = Number(userRes?.credits ?? credits);
 
@@ -327,7 +328,7 @@ export default function LeadPulseDashboard() {
 
         setResults(prev => [newResult, ...prev]);
 
-        const lineType = rapidData.line_type?.toLowerCase() || "";
+        const lineType = (rapidData.line_type || "").toLowerCase();
         if (!rapidData.valid) setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
         else if (lineType.includes("mobile")) setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
         else setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
@@ -356,7 +357,6 @@ export default function LeadPulseDashboard() {
           const creditEl = document.getElementById('creditBalance');
           if (creditEl) creditEl.innerText = newCredits.toString();
         } else {
-          // If sync fails with "insufficient", we must stop
           if (reportData.message?.toLowerCase().includes("insufficient")) {
             toast({ variant: "destructive", title: "Balance Exhausted", description: "Please refill your credits." });
             break;
@@ -369,7 +369,6 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
       
-      // Mandatory delay between requests
       if (i < processLimit - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 2000));
       }
@@ -387,8 +386,8 @@ export default function LeadPulseDashboard() {
 
   const downloadCategory = (category: string) => {
     let filtered;
-    if (category === 'mobile') filtered = results.filter(r => r.type.toLowerCase().includes('mobile'));
-    else if (category === 'landline') filtered = results.filter(r => r.type.toLowerCase().includes('landline'));
+    if (category === 'mobile') filtered = results.filter(r => (r.type || "").toLowerCase().includes('mobile'));
+    else if (category === 'landline') filtered = results.filter(r => (r.type || "").toLowerCase().includes('landline'));
     else if (category === 'invalid') filtered = results.filter(r => r.status === 'invalid');
     else filtered = results;
 
