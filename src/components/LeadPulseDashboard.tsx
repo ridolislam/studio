@@ -179,10 +179,8 @@ export default function LeadPulseDashboard() {
           const sheetName = workbook.SheetNames[0];
           rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
         } else {
-          // Robust parsing for CSV/TXT
           const text = data.toString();
           rows = text.split(/\r?\n/).filter(line => line.trim() !== "").map(line => {
-            // Handle comma separated and tab separated
             if (line.includes(',')) return line.split(',');
             if (line.includes('\t')) return line.split('\t');
             return [line];
@@ -202,7 +200,6 @@ export default function LeadPulseDashboard() {
           row.forEach((cell) => {
             const cellVal = String(cell || "").trim();
             const cleanCell = cellVal.replace(/[\s-()]/g, '');
-            // Check for numbers (7 to 15 digits, optional +)
             if (!foundNumber && /^\+?[0-9]{7,15}$/.test(cleanCell)) {
               foundNumber = cleanCell;
             }
@@ -255,11 +252,8 @@ export default function LeadPulseDashboard() {
     const userObj = JSON.parse(userStr);
     const formattedUser = userObj.data || userObj.user || userObj;
     
-    // First, sync profile to get the most accurate credit count
     await fetchAndSyncProfile();
     
-    // Get current credits from state after sync (which updates the state)
-    // We need to use a local variable to track credits within this execution block
     const userRes = await syncUserProfile(formattedUser.email);
     let currentCredits = Number(userRes?.credits || credits);
 
@@ -272,7 +266,6 @@ export default function LeadPulseDashboard() {
     processingRef.current = true;
     setProgress(0);
 
-    // Limit processing to available credits
     const processLimit = Math.min(lines.length, currentCredits);
     if (lines.length > currentCredits) {
       toast({ 
@@ -287,7 +280,6 @@ export default function LeadPulseDashboard() {
       const currentNumber = lines[i];
 
       try {
-        // 1. Get Key from Backend
         const keyRes = await getValidationKey(formattedUser.email);
         if (!keyRes.success) {
           toast({ variant: "destructive", title: "Key Error", description: keyRes.message });
@@ -296,7 +288,6 @@ export default function LeadPulseDashboard() {
 
         const { apiKey, rapidKey } = keyRes;
 
-        // 2. Direct API Call to RapidAPI (Using user's IP)
         const rapidResponse = await fetch(
           `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${currentNumber}&access_key=${apiKey}`,
           {
@@ -311,7 +302,6 @@ export default function LeadPulseDashboard() {
         if (rapidResponse.status === 429) {
           toast({ title: "Rate Limit (429)", description: "Waiting for 2 seconds before retrying..." });
           await new Promise(r => setTimeout(r, 2000));
-          // Retry logic: we don't increment i here to retry the same number
           i--; 
           continue;
         }
@@ -319,11 +309,8 @@ export default function LeadPulseDashboard() {
         if (!rapidResponse.ok) throw new Error("RapidAPI Request Failed");
 
         const rapidData = await rapidResponse.json();
-        
-        // Update Live JSON Feed
         setLiveJson(rapidData);
 
-        // 3. Update UI Results Table
         const newResult: ValidationResult = {
           id: Math.random().toString(36).substr(2, 9),
           number: rapidData.number || currentNumber,
@@ -336,13 +323,11 @@ export default function LeadPulseDashboard() {
 
         setResults(prev => [newResult, ...prev]);
 
-        // Update counts
         const lineType = rapidData.line_type?.toLowerCase() || "";
         if (!rapidData.valid) setCounts(prev => ({ ...prev, invalid: prev.invalid + 1 }));
         else if (lineType.includes("mobile")) setCounts(prev => ({ ...prev, mobile: prev.mobile + 1 }));
         else setCounts(prev => ({ ...prev, landline: prev.landline + 1 }));
 
-        // 4. Report Success to Backend to subtract credit
         const reportResponse = await fetch('https://numcheckr.onrender.com/api/user/report-success', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -358,18 +343,18 @@ export default function LeadPulseDashboard() {
 
         if (reportData.success) {
           const newCredits = Number(reportData.remainingCredits);
-          setCredits(newCredits); // Update UI state
+          setCredits(newCredits); 
           
-          // Update local storage to keep sync
           const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
           const formattedStored = currentStored.data || currentStored.user || currentStored;
           localStorage.setItem('user', JSON.stringify({ ...formattedStored, credits: newCredits }));
           
-          // Update credit balance in DOM if it exists (from DashboardPage logic)
           const creditEl = document.getElementById('creditBalance');
           if (creditEl) creditEl.innerText = newCredits.toString();
+
+          // LIVE HISTORY SYNC: Fetch history after each successful report
+          fetchHistory();
         } else {
-          // If reporting fails (e.g. sync error), stop processing
           toast({ variant: "destructive", title: "Sync Error", description: reportData.message || "Failed to sync credits" });
           if (reportData.message?.toLowerCase().includes("insufficient")) break;
         }
@@ -381,7 +366,6 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
       
-      // Delay (Sleep) between numbers to prevent API pressure
       if (i < processLimit - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 2000));
       }
@@ -492,7 +476,6 @@ export default function LeadPulseDashboard() {
                 </CardContent>
               </Card>
 
-              {/* Live Response Log Section */}
               <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden">
                 <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-primary" />
