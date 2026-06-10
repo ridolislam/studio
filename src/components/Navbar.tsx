@@ -10,10 +10,11 @@ import Logo from "./Logo";
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
+  const whatsappLink = "https://wa.me/qr/X3XUFT7RDTI2I1";
 
   const navLinks = [
     { name: "Pricing", href: "/pricing" },
-    { name: "Contact", href: "/contact" },
+    { name: "Contact", href: whatsappLink, isExternal: true },
   ];
 
   return (
@@ -34,6 +35,8 @@ export default function Navbar() {
               <Link 
                 key={link.name} 
                 href={link.href} 
+                target={link.isExternal ? "_blank" : undefined}
+                rel={link.isExternal ? "noopener noreferrer" : undefined}
                 className="text-sm font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors"
               >
                 {link.name}
@@ -76,6 +79,8 @@ export default function Navbar() {
             <Link 
               key={link.name} 
               href={link.href} 
+              target={link.isExternal ? "_blank" : undefined}
+              rel={link.isExternal ? "noopener noreferrer" : undefined}
               onClick={() => setIsOpen(false)}
               className="text-2xl font-black italic border-b border-white/5 pb-4"
             >
