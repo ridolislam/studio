@@ -33,11 +33,11 @@ export default function DashboardPage() {
     } else {
       try {
         const currentUser = JSON.parse(userStr);
-        // Standardize the user object in case it was saved under different keys
         const formattedUser = currentUser.data || currentUser.user || currentUser;
         
         if (formattedUser && formattedUser.email) {
           setUser(formattedUser);
+          // Force an immediate sync on mount
           syncProfile(formattedUser.email);
         } else {
           localStorage.removeItem('user');
@@ -50,7 +50,7 @@ export default function DashboardPage() {
     }
   }, [router]);
 
-  // Real-time Sync Interval every 60 seconds
+  // Regular sync every 30 seconds to keep it fresh
   useEffect(() => {
     const interval = setInterval(() => {
       const userStr = localStorage.getItem('user');
@@ -63,13 +63,13 @@ export default function DashboardPage() {
           }
         } catch (e) {}
       }
-    }, 60000);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
   /**
    * Syncs user profile data based on server-side logic.
-   * Updates UI and localStorage if server credits differ from local data.
+   * Updates UI and localStorage with the absolute truth from server.
    */
   const syncProfile = async (email: string) => {
     if (!email) return;
@@ -83,18 +83,15 @@ export default function DashboardPage() {
             const userData = JSON.parse(userStr);
             const formattedUser = userData.data || userData.user || userData;
             
-            if (formattedUser && formattedUser.credits !== res.credits) {
-              const updatedUser = { ...formattedUser, credits: res.credits };
-              localStorage.setItem('user', JSON.stringify(updatedUser));
-              setUser(updatedUser);
-              
-              // Log for verification
-              console.log("Credits updated from Admin Panel!");
-              
-              // Update UI element if exists
-              const creditElement = document.getElementById('creditBalance');
-              if (creditElement) creditElement.innerText = res.credits.toString();
-            }
+            // Always update if server returns successful sync, 
+            // ensuring we have the most recent credit count.
+            const updatedUser = { ...formattedUser, credits: res.credits };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            setUser(updatedUser);
+            
+            // Update live element
+            const creditElement = document.getElementById('creditBalance');
+            if (creditElement) creditElement.innerText = res.credits.toString();
           } catch (e) {}
         }
       }

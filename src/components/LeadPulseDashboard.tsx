@@ -114,6 +114,10 @@ export default function LeadPulseDashboard() {
           setCredits(Number(res.credits));
           const updatedUser = { ...formattedUser, credits: res.credits };
           localStorage.setItem('user', JSON.stringify(updatedUser));
+          
+          // Update the credit balance in the header if it exists
+          const creditEl = document.getElementById('creditBalance');
+          if (creditEl) creditEl.innerText = res.credits.toString();
         } else {
           setCredits(Number(formattedUser.credits) || 0);
         }
@@ -252,8 +256,7 @@ export default function LeadPulseDashboard() {
     const userObj = JSON.parse(userStr);
     const formattedUser = userObj.data || userObj.user || userObj;
     
-    await fetchAndSyncProfile();
-    
+    // Sync credits right before starting
     const userRes = await syncUserProfile(formattedUser.email);
     let currentCredits = Number(userRes?.credits || credits);
 
@@ -345,14 +348,16 @@ export default function LeadPulseDashboard() {
           const newCredits = Number(reportData.remainingCredits);
           setCredits(newCredits); 
           
+          // Update local storage so refreshes don't reset balance
           const currentStored = JSON.parse(localStorage.getItem('user') || '{}');
           const formattedStored = currentStored.data || currentStored.user || currentStored;
           localStorage.setItem('user', JSON.stringify({ ...formattedStored, credits: newCredits }));
           
+          // Sync header UI
           const creditEl = document.getElementById('creditBalance');
           if (creditEl) creditEl.innerText = newCredits.toString();
 
-          // LIVE HISTORY SYNC: Fetch history after each successful report
+          // Live history sync
           fetchHistory();
         } else {
           toast({ variant: "destructive", title: "Sync Error", description: reportData.message || "Failed to sync credits" });
@@ -366,6 +371,7 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / processLimit) * 100));
       
+      // Delay to avoid 429
       if (i < processLimit - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 2000));
       }
