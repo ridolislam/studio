@@ -254,7 +254,7 @@ export default function LeadPulseDashboard() {
           const data = await response.json();
           
           // C. [Step 3: Success Reporting]
-          // Show the raw JSON in a "Live JSON Feed" box.
+          // Show the raw JSON in a "Live server Response" box.
           setLiveJson(data);
 
           // Call report-success to update backend
@@ -390,11 +390,11 @@ export default function LeadPulseDashboard() {
                 </CardContent>
               </Card>
 
-              {/* Requirement: Live API Response formatted box */}
+              {/* Requirement: Live server Response formatted box */}
               <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden shadow-xl">
                 <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-primary" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Live API Response</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Live server Response</span>
                 </div>
                 <ScrollArea className="h-[280px] p-4 font-code text-[10px] text-green-400 bg-black/60">
                   {liveJson ? (
