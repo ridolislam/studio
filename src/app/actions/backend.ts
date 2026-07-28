@@ -7,6 +7,7 @@
 
 const API_BASE = 'https://numcheckr.onrender.com';
 const ADMIN_SECRET = 'Ridol123@';
+const VERCEL_WORKER_URL = process.env.VERCEL_WORKER_URL || ''; // Set this in your Render environment variables
 
 async function safeJson(response: Response) {
   try {
@@ -98,6 +99,57 @@ export async function reportBadKey(payload: { key: string }) {
   } catch (error) {
     return { success: false };
   }
+}
+
+/**
+ * DISTRIBUTED MANAGER LOGIC
+ * Chunks numbers and hits Vercel workers in parallel
+ */
+export async function validateBatchDistributed(payload: { numbers: string[], email: string }) {
+  if (!VERCEL_WORKER_URL) {
+    return { success: false, message: "VERCEL_WORKER_URL not configured." };
+  }
+
+  const results = [];
+  const numbers = payload.numbers;
+  
+  // 1. Fetch Key (Required for all workers in this batch)
+  const keyRes = await getValidationKey(payload.email);
+  if (!keyRes.success) return keyRes;
+  
+  const { apiKey, rapidKey } = keyRes;
+
+  // 2. Prepare Workers
+  const workerRequests = numbers.map(number => {
+    return fetch(VERCEL_WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number, apiKey, rapidKey })
+    }).then(res => res.json());
+  });
+
+  // 3. Execute in Parallel
+  const workerResponses = await Promise.all(workerRequests);
+
+  // 4. Report results individually for credit deduction and logging
+  for (let i = 0; i < workerResponses.length; i++) {
+    const data = workerResponses[i];
+    const number = numbers[i];
+
+    if (data.valid) {
+      await reportValidationSuccess({
+        email: payload.email,
+        key: apiKey,
+        number,
+        result: data
+      });
+    } else if (data.error && (data.status === 429 || data.status === 403)) {
+      await reportBadKey({ key: apiKey });
+    }
+    results.push({ number, data });
+  }
+
+  return { success: true, results };
 }
 
 export async function getUserHistory(payload: { email: string }) {

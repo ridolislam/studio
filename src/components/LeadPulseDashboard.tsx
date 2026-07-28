@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -42,11 +43,9 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useRouter } from 'next/navigation';
 import { 
-  getValidationKey,
-  reportValidationSuccess,
-  reportBadKey,
   syncUserProfile, 
-  getUserHistory 
+  getUserHistory,
+  validateBatchDistributed
 } from '@/app/actions/backend';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
@@ -202,6 +201,10 @@ export default function LeadPulseDashboard() {
     XLSX.writeFile(wb, `${fileName}.xlsx`);
   };
 
+  /**
+   * DISTRIBUTED START HANDLER
+   * Sends batches of 100 to Vercel workers
+   */
   const handleStart = async () => {
     const lines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (lines.length === 0) {
@@ -219,98 +222,57 @@ export default function LeadPulseDashboard() {
     processingRef.current = true;
     setProgress(0);
 
-    for (let i = 0; i < lines.length; i++) {
+    // Chunk size: 100 numbers at a time
+    const CHUNK_SIZE = 100;
+    const totalChunks = Math.ceil(lines.length / CHUNK_SIZE);
+
+    for (let i = 0; i < lines.length; i += CHUNK_SIZE) {
       if (!processingRef.current) break;
 
-      const number = lines[i];
-      let validated = false;
-      let attempts = 0;
+      const chunk = lines.slice(i, i + CHUNK_SIZE);
+      
+      try {
+        const batchRes = await validateBatchDistributed({ numbers: chunk, email });
+        
+        if (batchRes.success && batchRes.results) {
+          batchRes.results.forEach((res: any) => {
+            const data = res.data;
+            const newRes: ValidationResult = {
+              id: Math.random().toString(36).substr(2, 9),
+              number: data.number || res.number,
+              type: data.line_type || (data.valid ? 'Valid' : 'Invalid'),
+              carrier: data.carrier || 'N/A',
+              location: data.location || 'N/A',
+              status: data.valid ? 'success' : 'invalid',
+              timestamp: new Date().toISOString()
+            };
 
-      while (!validated && attempts < 3 && processingRef.current) {
-        try {
-          // A. Fetch Key from Render
-          const keyRes = await getValidationKey(email);
-          if (!keyRes.success) {
-            toast({ variant: 'destructive', title: 'Key Error', description: keyRes.message });
-            break;
-          }
-          const { apiKey, rapidKey } = keyRes;
+            setResults(prev => [newRes, ...prev]);
+            setLiveJson(data);
 
-          // B. Direct API Call from Browser (User IP)
-          const response = await fetch(
-            `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${number}&access_key=${apiKey}`,
-            {
-              method: 'GET',
-              headers: {
-                'x-rapidapi-key': rapidKey,
-                'x-rapidapi-host': 'apilayer-numverify-v1.p.rapidapi.com'
-              }
-            }
-          );
-
-          if (response.status === 429 || response.status === 403) {
-            await reportBadKey({ key: apiKey });
-            attempts++;
-            await new Promise(r => setTimeout(r, 1000));
-            continue;
-          }
-
-          if (!response.ok) throw new Error('RapidAPI failed');
-
-          const data = await response.json();
-          setLiveJson(data);
-
-          // C. Success Reporting to Render
-          const reportRes = await reportValidationSuccess({
-            email,
-            key: apiKey,
-            number,
-            result: data
+            const ltype = String(data.line_type || '').toLowerCase();
+            setCounts(p => {
+              if (!data.valid) return { ...p, invalid: p.invalid + 1 };
+              if (ltype.includes('mobile')) return { ...p, mobile: p.mobile + 1 };
+              return { ...p, landline: p.landline + 1 };
+            });
           });
-
-          if (reportRes.success && reportRes.remainingCredits !== undefined) {
-            setCredits(reportRes.remainingCredits);
-            const creditEl = document.getElementById('creditBalance');
-            if (creditEl) creditEl.innerText = reportRes.remainingCredits.toString();
-          }
-
-          const newRes: ValidationResult = {
-            id: Math.random().toString(36).substr(2, 9),
-            number: data.number || number,
-            type: data.line_type || (data.valid ? 'Valid' : 'Invalid'),
-            carrier: data.carrier || 'N/A',
-            location: data.location || 'N/A',
-            status: data.valid ? 'success' : 'invalid',
-            timestamp: new Date().toISOString()
-          };
-
-          setResults(prev => [newRes, ...prev]);
-          
-          const ltype = String(data.line_type || '').toLowerCase();
-          setCounts(p => {
-            if (!data.valid) return { ...p, invalid: p.invalid + 1 };
-            if (ltype.includes('mobile')) return { ...p, mobile: p.mobile + 1 };
-            return { ...p, landline: p.landline + 1 };
-          });
-
-          validated = true;
-        } catch (error) {
-          attempts++;
-          await new Promise(r => setTimeout(r, 1000));
         }
+      } catch (err) {
+        console.error('Batch processing error');
       }
 
-      setProgress(Math.round(((i + 1) / lines.length) * 100));
-
-      // Wait 1 second before the next number
-      if (i < lines.length - 1 && processingRef.current) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
+      const completed = Math.min(i + CHUNK_SIZE, lines.length);
+      setProgress(Math.round((completed / lines.length) * 100));
+      
+      // Update UI credits from sync
+      fetchAndSyncProfile();
     }
 
     setIsProcessing(false);
     processingRef.current = false;
     fetchHistory();
+    toast({ title: 'Success', description: 'All numbers processed via Vercel Workers.' });
   };
 
   const handleStop = () => {
@@ -361,7 +323,7 @@ export default function LeadPulseDashboard() {
                 <div className="absolute top-0 left-0 w-full h-1 bg-primary"></div>
                 <CardHeader>
                   <CardTitle className="text-xs font-black uppercase tracking-widest text-primary flex items-center justify-between">
-                    Lead Entry
+                    Distributed Input
                     {isExtracting && <Loader2 className="h-4 w-4 animate-spin" />}
                   </CardTitle>
                 </CardHeader>
@@ -378,9 +340,9 @@ export default function LeadPulseDashboard() {
                     disabled={isProcessing} 
                   />
                   <div className="grid grid-cols-2 gap-3">
-                    <Button onClick={handleStart} disabled={isProcessing} className="h-14 bg-primary font-black italic rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
+                    <Button onClick={handleStart} disabled={isProcessing} className="w-full h-14 bg-primary font-black italic rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
                       {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />} 
-                      {isProcessing ? "PROCESSING" : "START"}
+                      {isProcessing ? "FANNING OUT" : "DISTRIBUTED START"}
                     </Button>
                     <Button onClick={handleStop} disabled={!isProcessing} variant="outline" className="h-14 border-destructive/30 text-destructive font-black italic rounded-xl hover:bg-destructive/5 active:scale-95 transition-all">
                       <Square className="h-4 w-4 mr-2" /> STOP
@@ -392,7 +354,7 @@ export default function LeadPulseDashboard() {
               <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden shadow-xl">
                 <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-primary" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Live server Response</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Worker Response Feed</span>
                 </div>
                 <ScrollArea className="h-[280px] p-4 font-code text-[10px] text-green-400 bg-black/60">
                   {liveJson ? (
@@ -402,7 +364,7 @@ export default function LeadPulseDashboard() {
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full opacity-20 space-y-2">
                       <Code2 className="h-8 w-8" />
-                      <span className="italic">Waiting for live data feed...</span>
+                      <span className="italic">Waiting for workers to start...</span>
                     </div>
                   )}
                 </ScrollArea>
@@ -442,7 +404,7 @@ export default function LeadPulseDashboard() {
                   <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
                 </Card>
                 <Card className="border-primary/20 bg-primary/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Total Progress</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Batch Progress</p>
                   <h3 className="text-3xl font-black italic">{progress}%</h3>
                 </Card>
               </div>
@@ -453,7 +415,7 @@ export default function LeadPulseDashboard() {
 
               <Card className="bg-card/60 backdrop-blur-xl border-white/5 rounded-3xl overflow-hidden shadow-2xl">
                 <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
-                  <span className="text-xs font-black uppercase tracking-widest opacity-70">Validation Results Feed</span>
+                  <span className="text-xs font-black uppercase tracking-widest opacity-70">Distributed Results Stream</span>
                   <div className="flex items-center gap-3">
                     <Button 
                       size="sm" 
@@ -463,7 +425,7 @@ export default function LeadPulseDashboard() {
                     >
                       <FileSpreadsheet className="h-3 w-3 mr-2" /> Export XLSX
                     </Button>
-                    <Badge variant="outline" className="text-[9px] font-black border-primary/30 text-primary">LIVE</Badge>
+                    <Badge variant="outline" className="text-[9px] font-black border-primary/30 text-primary">SCALED</Badge>
                   </div>
                 </div>
                 <div className="overflow-x-auto">
@@ -474,7 +436,7 @@ export default function LeadPulseDashboard() {
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Type</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Location</TableHead>
-                        <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Time</TableHead>
+                        <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Worker ID</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -482,7 +444,7 @@ export default function LeadPulseDashboard() {
                         <TableRow>
                           <TableCell colSpan={5} className="h-64 text-center opacity-20">
                             <Code2 className="h-12 w-12 mx-auto mb-4" />
-                            <p className="font-black italic uppercase tracking-tighter">Enter numbers and click START to begin validation</p>
+                            <p className="font-black italic uppercase tracking-tighter">Enter numbers and click DISTRIBUTED START to begin</p>
                           </TableCell>
                         </TableRow>
                       ) : (
@@ -500,7 +462,7 @@ export default function LeadPulseDashboard() {
                             <TableCell className="text-xs font-bold italic opacity-80">{res.carrier}</TableCell>
                             <TableCell className="text-xs font-bold text-muted-foreground">{res.location}</TableCell>
                             <TableCell className="text-right px-8 font-code text-[10px] opacity-40">
-                              {new Date(res.timestamp).toLocaleTimeString()}
+                              W-{res.id.substr(0,4).toUpperCase()}
                             </TableCell>
                           </TableRow>
                         ))
