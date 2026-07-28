@@ -229,7 +229,7 @@ export default function LeadPulseDashboard() {
 
       while (!validated && attempts < 3 && processingRef.current) {
         try {
-          // A. Fetch Key
+          // A. Fetch Key from Render
           const keyRes = await getValidationKey(email);
           if (!keyRes.success) {
             toast({ variant: 'destructive', title: 'Key Error', description: keyRes.message });
@@ -237,7 +237,7 @@ export default function LeadPulseDashboard() {
           }
           const { apiKey, rapidKey } = keyRes;
 
-          // B. Direct API Call
+          // B. Direct API Call from Browser (User IP)
           const response = await fetch(
             `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${number}&access_key=${apiKey}`,
             {
@@ -261,7 +261,7 @@ export default function LeadPulseDashboard() {
           const data = await response.json();
           setLiveJson(data);
 
-          // C. Success Reporting
+          // C. Success Reporting to Render
           const reportRes = await reportValidationSuccess({
             email,
             key: apiKey,
@@ -303,7 +303,7 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / lines.length) * 100));
 
-      // Mandatory 2-second delay between successful validations
+      // Wait 2 seconds before the next number
       if (i < lines.length - 1 && processingRef.current) {
         await new Promise(r => setTimeout(r, 2000));
       }
