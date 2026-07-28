@@ -101,6 +101,7 @@ export default function LeadPulseDashboard() {
   }, []);
 
   const fetchAndSyncProfile = async () => {
+    if (typeof window === 'undefined') return;
     const userStr = localStorage.getItem('user');
     if (!userStr) return;
     try {
@@ -221,95 +222,110 @@ export default function LeadPulseDashboard() {
     processingRef.current = true;
     setProgress(0);
 
-    for (let i = 0; i < lines.length; i++) {
+    // Batch settings: Process 50 numbers in parallel per batch
+    const BATCH_SIZE = 50;
+    const chunks = [];
+    for (let i = 0; i < lines.length; i += BATCH_SIZE) {
+      chunks.push(lines.slice(i, i + BATCH_SIZE));
+    }
+
+    for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
       if (!processingRef.current) break;
+      const currentChunk = chunks[chunkIdx];
 
-      const number = lines[i];
-      let validated = false;
-      let attempts = 0;
+      // Process batch items in parallel
+      await Promise.all(currentChunk.map(async (number) => {
+        if (!processingRef.current) return;
 
-      while (!validated && attempts < 5 && processingRef.current) {
-        try {
-          const keyRes = await getValidationKey(email);
-          if (!keyRes || !keyRes.success) {
-            toast({ variant: "destructive", title: "Key Error", description: keyRes?.message || "Could not fetch API keys." });
-            processingRef.current = false;
-            break; 
-          }
+        let validated = false;
+        let attempts = 0;
 
-          const { apiKey, rapidKey } = keyRes;
-
-          const response = await fetch(
-            `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${number}&access_key=${apiKey}`,
-            {
-              method: 'GET',
-              headers: {
-                'x-rapidapi-key': rapidKey,
-                'x-rapidapi-host': 'apilayer-numverify-v1.p.rapidapi.com'
-              }
+        while (!validated && attempts < 3 && processingRef.current) {
+          try {
+            // Step 1: Get Keys for this specific parallel request
+            const keyRes = await getValidationKey(email);
+            if (!keyRes || !keyRes.success) {
+              validated = true; // Stop attempts for this number if no keys
+              break;
             }
-          );
 
-          if (response.status === 429 || response.status === 403) {
-            await reportBadKey({ key: apiKey });
+            const { apiKey, rapidKey } = keyRes;
+
+            // Step 2: Direct Client-IP Validation Call
+            const response = await fetch(
+              `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${number}&access_key=${apiKey}`,
+              {
+                method: 'GET',
+                headers: {
+                  'x-rapidapi-key': rapidKey,
+                  'x-rapidapi-host': 'apilayer-numverify-v1.p.rapidapi.com'
+                }
+              }
+            );
+
+            if (response.status === 429 || response.status === 403) {
+              await reportBadKey({ key: apiKey });
+              attempts++;
+              await new Promise(r => setTimeout(r, 1000));
+              continue;
+            }
+
+            if (!response.ok) break;
+
+            const data = await response.json();
+            setLiveJson(data);
+
+            // Step 3: Success Reporting
+            const reportRes = await reportValidationSuccess({
+              email,
+              key: apiKey,
+              number,
+              result: data
+            });
+
+            if (reportRes && reportRes.success) {
+              setCredits(reportRes.remainingCredits);
+              const creditEl = document.getElementById('creditBalance');
+              if (creditEl) creditEl.innerText = reportRes.remainingCredits.toString();
+
+              const newRes: ValidationResult = {
+                id: Math.random().toString(36).substr(2, 9),
+                number: data.number || number,
+                type: data.line_type || (data.valid ? 'Valid' : 'Invalid'),
+                carrier: data.carrier || 'N/A',
+                location: data.location || 'N/A',
+                status: data.valid ? 'success' : 'invalid',
+                timestamp: new Date().toISOString()
+              };
+
+              setResults(prev => [newRes, ...prev]);
+              
+              const ltype = String(data.line_type || '').toLowerCase();
+              setCounts(p => {
+                if (!data.valid) return { ...p, invalid: p.invalid + 1 };
+                if (ltype.includes('mobile')) return { ...p, mobile: p.mobile + 1 };
+                return { ...p, landline: p.landline + 1 };
+              });
+
+              validated = true;
+            } else {
+              validated = true;
+              break;
+            }
+          } catch (error) {
             attempts++;
-            await new Promise(r => setTimeout(r, 2000));
-            continue; 
+            await new Promise(r => setTimeout(r, 1000));
           }
-
-          if (!response.ok) {
-            console.error(`RapidAPI HTTP Error: ${response.status}`);
-            break;
-          }
-
-          const data = await response.json();
-          setLiveJson(data);
-
-          const reportRes = await reportValidationSuccess({
-            email,
-            key: apiKey,
-            number,
-            result: data 
-          });
-
-          if (reportRes && reportRes.success) {
-            setCredits(reportRes.remainingCredits);
-            const creditEl = document.getElementById('creditBalance');
-            if (creditEl) creditEl.innerText = reportRes.remainingCredits.toString();
-
-            const newRes: ValidationResult = {
-              id: Math.random().toString(36).substr(2, 9),
-              number: data.number || number,
-              type: data.line_type || (data.valid ? 'Valid' : 'Invalid'),
-              carrier: data.carrier || 'N/A',
-              location: data.location || 'N/A',
-              status: data.valid ? 'success' : 'invalid',
-              timestamp: new Date().toISOString()
-            };
-            setResults(prev => [newRes, ...prev]);
-            
-            const ltype = String(data.line_type || '').toLowerCase();
-            if (!data.valid) setCounts(p => ({ ...p, invalid: p.invalid + 1 }));
-            else if (ltype.includes('mobile')) setCounts(p => ({ ...p, mobile: p.mobile + 1 }));
-            else setCounts(p => ({ ...p, landline: p.landline + 1 }));
-
-            validated = true;
-          } else {
-            toast({ variant: 'destructive', title: 'Backend Error', description: reportRes.message || "Failed to report success." });
-            processingRef.current = false;
-            break;
-          }
-        } catch (error) {
-          console.error('Validation loop error:', error);
-          attempts++;
-          await new Promise(r => setTimeout(r, 1000));
         }
-      }
+      }));
 
-      setProgress(Math.round(((i + 1) / lines.length) * 100));
+      // Update total progress
+      const completedSoFar = Math.min((chunkIdx + 1) * BATCH_SIZE, lines.length);
+      setProgress(Math.round((completedSoFar / lines.length) * 100));
 
-      if (validated && i < lines.length - 1 && processingRef.current) {
-        await new Promise(r => setTimeout(r, 1500));
+      // Small delay between batches to respect overall IP rate limits
+      if (chunkIdx < chunks.length - 1 && processingRef.current) {
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
 
@@ -325,10 +341,10 @@ export default function LeadPulseDashboard() {
   };
 
   const filteredHistory = history.filter(item => {
-    if (!item) return false;
-    const s = historySearch.toLowerCase();
-    const desc = (item.description || '').toLowerCase();
-    const type = (item.type || '').toLowerCase();
+    if (!item || typeof item !== 'object') return false;
+    const s = String(historySearch || "").toLowerCase();
+    const desc = String(item.description || "").toLowerCase();
+    const type = String(item.type || "").toLowerCase();
     return desc.includes(s) || type.includes(s);
   });
 
@@ -384,7 +400,8 @@ export default function LeadPulseDashboard() {
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <Button onClick={handleStart} disabled={isProcessing} className="h-14 bg-primary font-black italic rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
-                      <Play className="h-4 w-4 mr-2" /> START
+                      {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />} 
+                      {isProcessing ? "SPEED UP" : "START"}
                     </Button>
                     <Button onClick={handleStop} disabled={!isProcessing} variant="outline" className="h-14 border-destructive/30 text-destructive font-black italic rounded-xl hover:bg-destructive/5 active:scale-95 transition-all">
                       <Square className="h-4 w-4 mr-2" /> STOP
@@ -446,7 +463,7 @@ export default function LeadPulseDashboard() {
                   <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
                 </Card>
                 <Card className="border-primary/20 bg-primary/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Queue Progress</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">Total Progress</p>
                   <h3 className="text-3xl font-black italic">{progress}%</h3>
                 </Card>
               </div>
@@ -457,7 +474,7 @@ export default function LeadPulseDashboard() {
 
               <Card className="bg-card/60 backdrop-blur-xl border-white/5 rounded-3xl overflow-hidden shadow-2xl">
                 <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
-                  <span className="text-xs font-black uppercase tracking-widest opacity-70">Real-time Validation Feed</span>
+                  <span className="text-xs font-black uppercase tracking-widest opacity-70">Parallel Validation Feed (50x Speed)</span>
                   <div className="flex items-center gap-3">
                     <Button 
                       size="sm" 
@@ -467,7 +484,7 @@ export default function LeadPulseDashboard() {
                     >
                       <FileSpreadsheet className="h-3 w-3 mr-2" /> Export XLSX
                     </Button>
-                    <Badge variant="outline" className="text-[9px] font-black border-primary/30 text-primary">LIVE</Badge>
+                    <Badge variant="outline" className="text-[9px] font-black border-primary/30 text-primary">BATCH ACTIVE</Badge>
                   </div>
                 </div>
                 <div className="overflow-x-auto">
@@ -486,7 +503,7 @@ export default function LeadPulseDashboard() {
                         <TableRow>
                           <TableCell colSpan={5} className="h-64 text-center opacity-20">
                             <Code2 className="h-12 w-12 mx-auto mb-4" />
-                            <p className="font-black italic uppercase tracking-tighter">Enter numbers and click START to begin</p>
+                            <p className="font-black italic uppercase tracking-tighter">Enter numbers and click START for High-Speed Validation</p>
                           </TableCell>
                         </TableRow>
                       ) : (
