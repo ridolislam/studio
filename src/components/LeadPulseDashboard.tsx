@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -252,7 +251,7 @@ export default function LeadPulseDashboard() {
           if (response.status === 429 || response.status === 403) {
             await reportBadKey({ key: apiKey });
             attempts++;
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 1000));
             continue;
           }
 
@@ -303,9 +302,9 @@ export default function LeadPulseDashboard() {
 
       setProgress(Math.round(((i + 1) / lines.length) * 100));
 
-      // Wait 2 seconds before the next number
+      // Wait 1 second before the next number
       if (i < lines.length - 1 && processingRef.current) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1000));
       }
     }
 
