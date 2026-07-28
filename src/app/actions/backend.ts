@@ -1,7 +1,8 @@
+
 'use server';
 
 /**
- * @fileOverview Server Actions to proxy requests to the Render backend.
+ * @fileOverview Server Actions to proxy requests to the Render backend and handle validation proxying.
  */
 
 const API_BASE = 'https://numcheckr.onrender.com';
@@ -96,6 +97,64 @@ export async function reportBadKey(payload: { key: string }) {
     return await safeJson(response);
   } catch (error) {
     return { success: false };
+  }
+}
+
+/**
+ * New Proxy Validation Endpoint (Server-Side)
+ * This acts as the middleman between Browser -> Render -> (Future VPS) -> RapidAPI
+ */
+export async function validateNumberProxy(email: string, number: string) {
+  try {
+    // 1. Get Key from Render Backend
+    const keyRes = await getValidationKey(email);
+    if (!keyRes || !keyRes.success) {
+      return { success: false, message: 'No API keys available' };
+    }
+
+    const { apiKey, rapidKey } = keyRes;
+
+    // 2. Perform Validation (Currently from Render, will be VPS in future)
+    // For now, testing directly from Render's runtime
+    const response = await fetch(
+      `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${number}&access_key=${apiKey}`,
+      {
+        method: 'GET',
+        headers: {
+          'x-rapidapi-key': rapidKey,
+          'x-rapidapi-host': 'apilayer-numverify-v1.p.rapidapi.com'
+        }
+      }
+    );
+
+    if (response.status === 429 || response.status === 403) {
+      await reportBadKey({ key: apiKey });
+      return { success: false, retry: true, message: 'Rate limited or forbidden' };
+    }
+
+    if (!response.ok) {
+      return { success: false, message: 'RapidAPI request failed' };
+    }
+
+    const data = await response.json();
+
+    // 3. Report Success to Render Backend
+    const reportRes = await reportValidationSuccess({
+      email,
+      key: apiKey,
+      number,
+      result: data
+    });
+
+    return {
+      success: true,
+      data,
+      remainingCredits: reportRes?.remainingCredits
+    };
+
+  } catch (error) {
+    console.error("Proxy Validation Error:", error);
+    return { success: false, message: 'Internal Server Error' };
   }
 }
 
