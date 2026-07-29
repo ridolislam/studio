@@ -29,8 +29,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { 
-  getAdminStats, 
-  getAdminUsers, 
+  getFullDashboardData,
   updateAdminUser, 
   uploadRapidKeys,
   uploadNumverifyKeys,
@@ -42,8 +41,7 @@ import Logo from "@/components/Logo";
 export default function AdminPanel() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [secretInput, setSecretInput] = useState("");
-  const [stats, setStats] = useState<any>(null);
-  const [users, setUsers] = useState<any[]>([]);
+  const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
@@ -73,30 +71,23 @@ export default function AdminPanel() {
 
   const fetchData = async (secret: string = ADMIN_SECRET) => {
     setLoading(true);
-    addLog(`[SYSTEM] Syncing with Render Database...`);
+    addLog(`[SYSTEM] Syncing full dashboard...`);
     try {
-      const statsRes = await getAdminStats(secret);
-      const usersRes = await getAdminUsers(secret);
+      const res = await getFullDashboardData(secret);
       
-      if (statsRes && !statsRes.error) {
-        setStats(statsRes);
-        addLog(`[STATS] Sync complete. RapidKeys: ${statsRes.rapidCount || 0}, NumVerify: ${statsRes.numverifyCount || 0}`);
-      } else if (statsRes?.error === 'WAKING_UP') {
+      if (res && res.success) {
+        setData(res);
+        addLog(`[STATS] Sync complete. Users: ${res.totalUsers}, Rapid: ${res.totalRapid}, Numverify: ${res.totalNumverify}`);
+      } else if (res?.error === 'WAKING_UP') {
         addLog(`[WARN] Backend is waking up. Retrying in 5s...`);
         setTimeout(() => fetchData(secret), 5000);
         return;
+      } else {
+        addLog(`[ERROR] ${res?.message || "Failed to sync"}`);
       }
-
-      if (usersRes) {
-        const userList = Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []);
-        setUsers(userList);
-        addLog(`[USERS] Loaded ${userList.length} user profiles.`);
-      }
-
-      addLog(`[SYSTEM] All systems nominal.`);
     } catch (err) {
-      addLog("[ERROR] Failed to connect to Render cluster.");
-      toast({ variant: "destructive", title: "Sync Error", description: "Backend might be sleeping. Try refreshing in a minute." });
+      addLog("[ERROR] Critical connection failure.");
+      toast({ variant: "destructive", title: "Sync Error", description: "Backend connection failed." });
     } finally {
       setLoading(false);
     }
@@ -154,8 +145,8 @@ export default function AdminPanel() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const data = event.target?.result;
-        const workbook = read(data, { type: 'binary' });
+        const dataStr = event.target?.result;
+        const workbook = read(dataStr, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
         const rows: any[][] = utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
         
@@ -196,7 +187,7 @@ export default function AdminPanel() {
             <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6 border border-primary/20">
               <Lock className="h-8 w-8 text-primary" />
             </div>
-            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter">Command Center</CardTitle>
+            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter text-foreground">Command Center</CardTitle>
           </CardHeader>
           <CardContent className="p-8">
             <form onSubmit={handleAdminLogin} className="space-y-6">
@@ -221,7 +212,7 @@ export default function AdminPanel() {
     );
   }
 
-  const filteredUsers = (Array.isArray(users) ? users : []).filter(u => 
+  const filteredUsers = (Array.isArray(data?.users) ? data.users : []).filter((u: any) => 
     String(u?.email || "").toLowerCase().includes(search.toLowerCase())
   );
 
@@ -232,7 +223,7 @@ export default function AdminPanel() {
           <div className="flex items-center gap-4">
             <Logo size={56} />
             <div className="flex flex-col">
-              <h1 className="text-4xl font-black italic tracking-tighter text-3d uppercase">Admin Terminal</h1>
+              <h1 className="text-4xl font-black italic tracking-tighter text-foreground uppercase">Admin Terminal</h1>
               <div className="text-[10px] font-black uppercase tracking-widest text-primary mt-1">System Orchestrator</div>
             </div>
           </div>
@@ -246,24 +237,29 @@ export default function AdminPanel() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="border-primary/20 bg-primary/5 p-8 rounded-3xl relative overflow-hidden">
-             <div className="absolute -right-4 -top-4 opacity-5"><Database size={120} /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">RapidKeys (Permanent)</p>
-             <h3 className="text-5xl font-black italic">{loading ? <Loader2 className="animate-spin h-8 w-8" /> : (stats?.rapidCount || 0)}</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <Card className="border-primary/20 bg-primary/5 p-6 rounded-3xl relative overflow-hidden">
+             <div className="absolute -right-4 -top-4 opacity-5"><Users size={100} /></div>
+             <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Total Users</p>
+             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (data?.totalUsers || 0)}</h3>
           </Card>
-          <Card className="border-accent/20 bg-accent/5 p-8 rounded-3xl relative overflow-hidden">
-             <div className="absolute -right-4 -top-4 opacity-5"><Zap size={120} /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">NumVerify (Temp)</p>
-             <h3 className="text-5xl font-black italic">{loading ? <Loader2 className="animate-spin h-8 w-8" /> : (stats?.numverifyCount || 0)}</h3>
+          <Card className="border-accent/20 bg-accent/5 p-6 rounded-3xl relative overflow-hidden">
+             <div className="absolute -right-4 -top-4 opacity-5"><Zap size={100} /></div>
+             <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">Rapid Threads</p>
+             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (data?.totalRapid || 0)}</h3>
           </Card>
-          <Card className="border-red-500/20 bg-red-500/5 p-8 rounded-3xl flex items-center justify-between relative overflow-hidden">
-             <div className="absolute -right-4 -top-4 opacity-5"><ShieldAlert size={120} /></div>
+          <Card className="border-emerald-500/20 bg-emerald-500/5 p-6 rounded-3xl relative overflow-hidden">
+             <div className="absolute -right-4 -top-4 opacity-5"><Database size={100} /></div>
+             <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500/70 mb-2">NumVerify Keys</p>
+             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (data?.totalNumverify || 0)}</h3>
+          </Card>
+          <Card className="border-red-500/20 bg-red-500/5 p-6 rounded-3xl flex items-center justify-between relative overflow-hidden">
+             <div className="absolute -right-4 -top-4 opacity-5"><ShieldAlert size={100} /></div>
              <div>
-               <p className="text-[10px] font-black uppercase tracking-widest text-red-500/70 mb-2">System Health</p>
-               <h3 className="text-5xl font-black italic">{loading ? "BUSY" : "ACTIVE"}</h3>
+               <p className="text-[10px] font-black uppercase tracking-widest text-red-500/70 mb-2">Status</p>
+               <h3 className="text-4xl font-black italic">{loading ? "BUSY" : "ACTIVE"}</h3>
              </div>
-             <Button variant="destructive" size="icon" onClick={handleClearKeys} disabled={isClearing} className="h-14 w-14 rounded-2xl z-10">
+             <Button variant="destructive" size="icon" onClick={handleClearKeys} disabled={isClearing} className="h-12 w-12 rounded-xl z-10">
                {isClearing ? <Loader2 className="animate-spin" /> : <Trash2 />}
              </Button>
           </Card>
@@ -280,7 +276,7 @@ export default function AdminPanel() {
               <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
                 <h4 className="text-xl font-black italic mb-4">Upload RapidKeys</h4>
                 <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
-                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Permanent keys for concurrent validation.</p>
+                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Permanent keys for concurrent threads.</p>
               </Card>
               <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
                 <h4 className="text-xl font-black italic mb-4">Upload Numverify</h4>
@@ -327,7 +323,7 @@ export default function AdminPanel() {
                         <TableRow><TableCell colSpan={3} className="text-center py-10"><Loader2 className="animate-spin h-8 w-8 mx-auto opacity-20" /></TableCell></TableRow>
                       ) : filteredUsers.length === 0 ? (
                         <TableRow><TableCell colSpan={3} className="text-center py-10 opacity-20 font-bold">NO USERS FOUND</TableCell></TableRow>
-                      ) : filteredUsers.map(user => (
+                      ) : filteredUsers.map((user: any) => (
                         <TableRow key={user._id || user.uid} className="border-white/5 hover:bg-white/5">
                           <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
                           <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>

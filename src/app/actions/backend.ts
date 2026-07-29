@@ -82,6 +82,22 @@ export async function getUserHistory(payload: { email: string }) {
 
 // --- ADMIN ACTIONS ---
 
+export async function getFullDashboardData(secret: string) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/full-dashboard`, {
+      method: 'GET',
+      headers: { 
+        'admin-secret': secret,
+        'Content-Type': 'application/json' 
+      },
+      cache: 'no-store'
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Failed to fetch dashboard data' };
+  }
+}
+
 export async function uploadRapidKeys(payload: { secret: string, keys: string[] }) {
   try {
     const response = await fetch(`${API_BASE}/api/admin/upload-rapid`, {
