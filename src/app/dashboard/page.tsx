@@ -37,7 +37,6 @@ export default function DashboardPage() {
         
         if (formattedUser && formattedUser.email) {
           setUser(formattedUser);
-          // Immediate sync on mount to get real credits
           syncProfile(formattedUser.email);
         } else {
           localStorage.removeItem('user');
@@ -48,12 +47,18 @@ export default function DashboardPage() {
         router.push("/login");
       }
     }
+
+    // Listen for global credit updates
+    const handleCreditUpdate = (event: any) => {
+      if (event.detail && typeof event.detail.credits !== 'undefined') {
+        setUser((prev: any) => ({ ...prev, credits: event.detail.credits }));
+      }
+    };
+
+    window.addEventListener('creditsUpdated', handleCreditUpdate);
+    return () => window.removeEventListener('creditsUpdated', handleCreditUpdate);
   }, [router]);
 
-  /**
-   * Syncs user profile data based on server-side logic.
-   * Updates UI and localStorage with the absolute truth from server.
-   */
   const syncProfile = async (email: string) => {
     if (!email || !isMounted) return;
     setIsSyncing(true);
@@ -65,14 +70,12 @@ export default function DashboardPage() {
           try {
             const userData = JSON.parse(userStr);
             const formattedUser = userData.data || userData.user || userData;
-            
             const updatedUser = { ...formattedUser, credits: res.credits };
             localStorage.setItem('user', JSON.stringify(updatedUser));
             setUser(updatedUser);
             
-            // Safe DOM update
-            const creditElement = document.getElementById('creditBalance');
-            if (creditElement) creditElement.innerText = res.credits.toString();
+            // Dispatch event to other components
+            window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
           } catch (e) {}
         }
       }
@@ -119,7 +122,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase text-muted-foreground leading-none mb-1">Available Credits</span>
-                <span id="creditBalance" className="text-xl font-black italic leading-none">{user.credits ?? "..."}</span>
+                <span className="text-xl font-black italic leading-none">{user.credits ?? "..."}</span>
               </div>
               <Button 
                 variant="ghost" 

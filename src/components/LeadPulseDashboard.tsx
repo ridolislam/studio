@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -77,8 +78,24 @@ export default function LeadPulseDashboard() {
       window.location.href = "/login";
       return;
     }
+    
+    // Initial credits load from localStorage
+    try {
+      const userData = JSON.parse(userStr);
+      setCredits(userData.credits || 0);
+    } catch(e) {}
+
     fetchAndSyncProfile();
     fetchHistory();
+
+    // Listen for global credit updates
+    const handleCreditUpdate = (event: any) => {
+      if (event.detail && typeof event.detail.credits !== 'undefined') {
+        setCredits(event.detail.credits);
+      }
+    };
+    window.addEventListener('creditsUpdated', handleCreditUpdate);
+    return () => window.removeEventListener('creditsUpdated', handleCreditUpdate);
   }, []);
 
   const fetchAndSyncProfile = async () => {
@@ -95,6 +112,8 @@ export default function LeadPulseDashboard() {
         setCredits(res.credits);
         const updatedUser = { ...userData, credits: res.credits };
         localStorage.setItem('user', JSON.stringify(updatedUser));
+        // Broadcast change
+        window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
       }
     } catch (e) {
       console.error('Profile sync failed');
@@ -212,13 +231,13 @@ export default function LeadPulseDashboard() {
           const dataStr = part.replace('data: ', '').trim();
           
           try {
-            const data = JSON.parse(dataStr);
-            
-            if (data.status === 'DONE') {
+            if (dataStr.includes('"status":"DONE"')) {
               toast({ title: "Validation Complete", description: "All numbers processed." });
               break;
             }
 
+            const data = JSON.parse(dataStr);
+            
             if (Array.isArray(data)) {
               const newResults: ValidationResult[] = data.map((item: any) => ({
                 id: Math.random().toString(36).substr(2, 9),
@@ -262,8 +281,11 @@ export default function LeadPulseDashboard() {
       }
     } finally {
       setIsProcessing(false);
-      fetchAndSyncProfile();
-      fetchHistory();
+      // Vital: Sync after any validation session ends
+      setTimeout(() => {
+        fetchAndSyncProfile();
+        fetchHistory();
+      }, 1000);
     }
   };
 
@@ -283,6 +305,9 @@ export default function LeadPulseDashboard() {
     
     setIsProcessing(false);
     toast({ variant: "destructive", title: "Stop Signal Sent", description: "Server loop termination requested." });
+    
+    // Sync credits after stopping
+    setTimeout(fetchAndSyncProfile, 1000);
   };
 
   const downloadExcel = (data: ValidationResult[], fileName: string) => {
