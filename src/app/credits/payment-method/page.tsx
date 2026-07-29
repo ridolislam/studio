@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { createOxapayInvoice } from "@/app/actions/backend";
+import { Badge } from "@/components/ui/badge";
 
 const COINS = [
   { id: 'USDT', name: 'Tether (USDT)', network: 'TRC20', icon: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },

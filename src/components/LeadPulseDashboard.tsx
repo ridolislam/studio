@@ -469,7 +469,6 @@ export default function LeadPulseDashboard() {
         </TabsContent>
 
         <TabsContent value="history">
-          {/* History content remains similar but synced via syncUserProfile */}
           <Card className="border-white/5 bg-card/60 backdrop-blur-xl rounded-3xl overflow-hidden">
             <CardHeader className="p-8 border-b border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 bg-muted/5">
               <div>
