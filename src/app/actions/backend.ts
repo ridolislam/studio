@@ -15,7 +15,6 @@ async function safeJson(response: Response) {
       return data;
     }
     const text = await response.text();
-    // Handle potential wake-up messages from Render free tier
     if (text.toLowerCase().includes('waking up')) {
       return { success: false, message: 'Server is waking up. Please wait 30 seconds.', error: 'WAKING_UP' };
     }
