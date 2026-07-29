@@ -18,7 +18,8 @@ import {
   Trash2,
   AlertTriangle,
   Server,
-  Database
+  Database,
+  Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -59,7 +60,6 @@ export default function AdminPanel() {
 
   useEffect(() => {
     setIsMounted(true);
-    // Auto-login if secret was already entered in this session
     const savedSecret = sessionStorage.getItem('admin_secret');
     if (savedSecret === ADMIN_SECRET) {
       setIsAuthenticated(true);
@@ -67,37 +67,39 @@ export default function AdminPanel() {
     }
   }, []);
 
+  const addLog = (msg: string) => {
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 30));
+  };
+
   const fetchData = async (secret: string = ADMIN_SECRET) => {
     setLoading(true);
-    addLog(`[SYSTEM] Fetching database stats...`);
+    addLog(`[SYSTEM] Syncing with Render Database...`);
     try {
-      const [statsRes, usersRes] = await Promise.all([
-        getAdminStats(secret), 
-        getAdminUsers(secret)
-      ]);
+      const statsRes = await getAdminStats(secret);
+      const usersRes = await getAdminUsers(secret);
       
       if (statsRes && !statsRes.error) {
         setStats(statsRes);
-      } else {
-        addLog(`[WARN] Stats endpoint returned error: ${statsRes?.message || 'Unknown'}`);
+        addLog(`[STATS] Found ${statsRes.rapidCount} RapidKeys and ${statsRes.numverifyCount} NumVerify keys.`);
+      } else if (statsRes?.error === 'WAKING_UP') {
+        addLog(`[WARN] Backend is waking up. Retrying in 5s...`);
+        setTimeout(() => fetchData(secret), 5000);
+        return;
       }
 
       if (usersRes) {
         const userList = Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []);
         setUsers(userList);
+        addLog(`[USERS] Loaded ${userList.length} user profiles.`);
       }
 
-      addLog(`[SYSTEM] Central Database Synced successfully.`);
+      addLog(`[SYSTEM] All systems nominal.`);
     } catch (err) {
-      addLog("[ERROR] Central database connection failed.");
-      toast({ variant: "destructive", title: "Sync Error", description: "Could not fetch admin data. Server might be sleeping." });
+      addLog("[ERROR] Failed to connect to Render cluster.");
+      toast({ variant: "destructive", title: "Sync Error", description: "Backend might be sleeping. Try refreshing in a minute." });
     } finally {
       setLoading(false);
     }
-  };
-
-  const addLog = (msg: string) => {
-    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 30));
   };
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -119,7 +121,7 @@ export default function AdminPanel() {
     setIsUpdating(userId);
     const res = await updateAdminUser({ secret: ADMIN_SECRET, userId, credits: parseInt(newCredits) });
     if (res && res.success) {
-      addLog(`[CREDITS] Set ${userId} balance to ${newCredits}`);
+      addLog(`[CREDITS] Successfully updated user ${userId}.`);
       toast({ title: "Success", description: "User credits updated." });
       fetchData();
     } else {
@@ -129,17 +131,17 @@ export default function AdminPanel() {
   };
 
   const handleClearKeys = async () => {
-    if (!confirm("Are you sure you want to WIPE all API keys?")) return;
+    if (!confirm("Are you sure you want to WIPE all API keys? This cannot be undone.")) return;
     setIsClearing(true);
     try {
       const res = await clearAdminKeys({ secret: ADMIN_SECRET });
       if (res && res.success) {
-        addLog(`[WIPE] All keys cleared from database.`);
+        addLog(`[WIPE] All keys cleared from the central database.`);
         toast({ title: "Success", description: res.message });
         fetchData();
       }
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Wipe failed." });
+      toast({ variant: "destructive", title: "Error", description: "Wipe operation failed." });
     } finally {
       setIsClearing(false);
     }
@@ -160,24 +162,24 @@ export default function AdminPanel() {
         const keys = rows.map(r => String(r[0] || '').trim()).filter(k => k.length > 5);
         
         if (keys.length === 0) {
-          toast({ variant: "destructive", title: "Empty File", description: "No keys found in column A." });
+          toast({ variant: "destructive", title: "Empty File", description: "No valid keys found in Column A." });
           return;
         }
 
-        addLog(`[UPLOAD] Sending ${keys.length} ${type} keys...`);
+        addLog(`[UPLOAD] Sending ${keys.length} ${type} keys to cluster...`);
         const res = type === 'rapid' 
           ? await uploadRapidKeys({ secret: ADMIN_SECRET, keys })
           : await uploadNumverifyKeys({ secret: ADMIN_SECRET, keys });
         
         if (res && res.success) {
-          addLog(`[SUCCESS] ${type.toUpperCase()} keys active.`);
-          toast({ title: "Keys Active", description: res.message });
+          addLog(`[SUCCESS] Cluster updated with new ${type} keys.`);
+          toast({ title: "Keys Injected", description: res.message });
           fetchData();
         } else {
           toast({ variant: "destructive", title: "Upload Failed", description: res?.message });
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Error", description: "Excel parsing failed." });
+        toast({ variant: "destructive", title: "Error", description: "Failed to parse Excel file." });
       }
     };
     reader.readAsBinaryString(file);
@@ -248,12 +250,12 @@ export default function AdminPanel() {
           <Card className="border-primary/20 bg-primary/5 p-8 rounded-3xl relative overflow-hidden">
              <div className="absolute -right-4 -top-4 opacity-5"><Database size={120} /></div>
              <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Permanent RapidKeys</p>
-             <h3 className="text-5xl font-black italic">{loading ? "..." : (stats?.rapidCount || 0)}</h3>
+             <h3 className="text-5xl font-black italic">{loading ? <Loader2 className="animate-spin h-8 w-8" /> : (stats?.rapidCount || 0)}</h3>
           </Card>
           <Card className="border-accent/20 bg-accent/5 p-8 rounded-3xl relative overflow-hidden">
              <div className="absolute -right-4 -top-4 opacity-5"><Zap size={120} /></div>
              <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">Temporary NumVerify</p>
-             <h3 className="text-5xl font-black italic">{loading ? "..." : (stats?.numverifyCount || 0)}</h3>
+             <h3 className="text-5xl font-black italic">{loading ? <Loader2 className="animate-spin h-8 w-8" /> : (stats?.numverifyCount || 0)}</h3>
           </Card>
           <Card className="border-red-500/20 bg-red-500/5 p-8 rounded-3xl flex items-center justify-between relative overflow-hidden">
              <div className="absolute -right-4 -top-4 opacity-5"><ShieldAlert size={120} /></div>
@@ -278,19 +280,19 @@ export default function AdminPanel() {
               <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
                 <h4 className="text-xl font-black italic mb-4">Upload RapidKeys (Threads)</h4>
                 <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
-                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Permanent keys used for concurrency count.</p>
+                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Used for concurrent validation. Permanent.</p>
               </Card>
               <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
                 <h4 className="text-xl font-black italic mb-4">Upload Numverify (Temp)</h4>
                 <Input type="file" onChange={(e) => processExcel(e, 'numverify')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
-                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Disposable keys with 100 hit limit.</p>
+                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Used for single validations. 100 hit limit.</p>
               </Card>
             </div>
 
             <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden shadow-xl">
                <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
                  <Terminal className="h-4 w-4 text-primary" />
-                 <span className="text-[10px] font-black uppercase tracking-widest">Master Logs</span>
+                 <span className="text-[10px] font-black uppercase tracking-widest">Global Event Stream</span>
                </div>
                <div className="p-4 h-64 overflow-y-auto font-code text-[11px] text-green-400 space-y-1 bg-black/80">
                  {logs.length === 0 ? <div>[IDLE] Awaiting connection...</div> : logs.map((log, i) => <div key={i}>{log}</div>)}
@@ -326,16 +328,16 @@ export default function AdminPanel() {
                       ) : filteredUsers.length === 0 ? (
                         <TableRow><TableCell colSpan={3} className="text-center py-10 opacity-20 font-bold">NO USERS FOUND</TableCell></TableRow>
                       ) : filteredUsers.map(user => (
-                        <TableRow key={user._id} className="border-white/5 hover:bg-white/5">
+                        <TableRow key={user._id || user.uid} className="border-white/5 hover:bg-white/5">
                           <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
                           <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
                           <TableCell className="text-right px-8">
                             <Button 
-                              onClick={() => handleUpdateCredits(user._id, user.credits)} 
+                              onClick={() => handleUpdateCredits(user._id || user.uid, user.credits)} 
                               className="bg-primary rounded-xl font-black italic h-10 px-6"
-                              disabled={isUpdating === user._id}
+                              disabled={isUpdating === (user._id || user.uid)}
                             >
-                              {isUpdating === user._id ? <Loader2 className="animate-spin" /> : "EDIT"}
+                              {isUpdating === (user._id || user.uid) ? <Loader2 className="animate-spin" /> : "EDIT"}
                             </Button>
                           </TableCell>
                         </TableRow>

@@ -11,9 +11,14 @@ async function safeJson(response: Response) {
   try {
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
-      return await response.json();
+      const data = await response.json();
+      return data;
     }
     const text = await response.text();
+    // Handle potential wake-up messages from Render free tier
+    if (text.toLowerCase().includes('waking up')) {
+      return { success: false, message: 'Server is waking up. Please wait 30 seconds.', error: 'WAKING_UP' };
+    }
     return { success: false, message: text || `Server error: ${response.status}` };
   } catch (err) {
     return { success: false, message: "Failed to parse server response." };
@@ -140,7 +145,7 @@ export async function getAdminStats(secret: string) {
     });
     return await safeJson(response);
   } catch (error) {
-    return null;
+    return { success: false, message: 'Failed to fetch stats' };
   }
 }
 
@@ -154,7 +159,7 @@ export async function getAdminUsers(secret: string) {
     });
     return await safeJson(response);
   } catch (error) {
-    return [];
+    return { success: false, message: 'Failed to fetch users' };
   }
 }
 
