@@ -130,18 +130,28 @@ export async function clearAdminKeys(payload: { secret: string }) {
   }
 }
 
-export async function getAdminStats() {
+export async function getAdminStats(secret: string) {
   try {
-    const response = await fetch(`${API_BASE}/api/admin/stats`, { cache: 'no-store' });
+    const response = await fetch(`${API_BASE}/api/admin/stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+      cache: 'no-store'
+    });
     return await safeJson(response);
   } catch (error) {
     return null;
   }
 }
 
-export async function getAdminUsers() {
+export async function getAdminUsers(secret: string) {
   try {
-    const response = await fetch(`${API_BASE}/api/admin/users`, { cache: 'no-store' });
+    const response = await fetch(`${API_BASE}/api/admin/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+      cache: 'no-store'
+    });
     return await safeJson(response);
   } catch (error) {
     return [];

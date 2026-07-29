@@ -17,7 +17,8 @@ import {
   Terminal,
   Trash2,
   AlertTriangle,
-  Server
+  Server,
+  Database
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -58,32 +59,53 @@ export default function AdminPanel() {
 
   useEffect(() => {
     setIsMounted(true);
+    // Auto-login if secret was already entered in this session
+    const savedSecret = sessionStorage.getItem('admin_secret');
+    if (savedSecret === ADMIN_SECRET) {
+      setIsAuthenticated(true);
+      fetchData(savedSecret);
+    }
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (secret: string = ADMIN_SECRET) => {
     setLoading(true);
+    addLog(`[SYSTEM] Fetching database stats...`);
     try {
-      const [statsRes, usersRes] = await Promise.all([getAdminStats(), getAdminUsers()]);
-      if (statsRes) setStats(statsRes);
-      if (usersRes) setUsers(Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []));
-      addLog(`[SYSTEM] Central Database Synced.`);
+      const [statsRes, usersRes] = await Promise.all([
+        getAdminStats(secret), 
+        getAdminUsers(secret)
+      ]);
+      
+      if (statsRes && !statsRes.error) {
+        setStats(statsRes);
+      } else {
+        addLog(`[WARN] Stats endpoint returned error: ${statsRes?.message || 'Unknown'}`);
+      }
+
+      if (usersRes) {
+        const userList = Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []);
+        setUsers(userList);
+      }
+
+      addLog(`[SYSTEM] Central Database Synced successfully.`);
     } catch (err) {
-      addLog("[ERROR] Database connection timeout.");
-      toast({ variant: "destructive", title: "Sync Error", description: "Failed to connect to admin API." });
+      addLog("[ERROR] Central database connection failed.");
+      toast({ variant: "destructive", title: "Sync Error", description: "Could not fetch admin data. Server might be sleeping." });
     } finally {
       setLoading(false);
     }
   };
 
   const addLog = (msg: string) => {
-    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 20));
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 30));
   };
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (secretInput === ADMIN_SECRET) {
       setIsAuthenticated(true);
-      fetchData();
+      sessionStorage.setItem('admin_secret', ADMIN_SECRET);
+      fetchData(ADMIN_SECRET);
       toast({ title: "Authorized", description: "Welcome to numcheckr Command Center." });
     } else {
       toast({ variant: "destructive", title: "Access Denied", description: "Invalid Master Secret." });
@@ -212,26 +234,34 @@ export default function AdminPanel() {
               <div className="text-[10px] font-black uppercase tracking-widest text-primary mt-1">System Orchestrator</div>
             </div>
           </div>
-          <Button variant="outline" onClick={() => router.push("/dashboard")} className="rounded-xl h-12 font-bold">
-            <ArrowLeft className="h-4 w-4 mr-2" /> EXIT
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="icon" onClick={() => fetchData()} disabled={loading} className="rounded-xl h-12 w-12">
+              <RefreshCcw className={loading ? "animate-spin" : ""} />
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/dashboard")} className="rounded-xl h-12 font-bold">
+              <ArrowLeft className="h-4 w-4 mr-2" /> EXIT
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="border-primary/20 bg-primary/5 p-8 rounded-3xl">
+          <Card className="border-primary/20 bg-primary/5 p-8 rounded-3xl relative overflow-hidden">
+             <div className="absolute -right-4 -top-4 opacity-5"><Database size={120} /></div>
              <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Permanent RapidKeys</p>
-             <h3 className="text-5xl font-black italic">{stats?.rapidCount || 0}</h3>
+             <h3 className="text-5xl font-black italic">{loading ? "..." : (stats?.rapidCount || 0)}</h3>
           </Card>
-          <Card className="border-accent/20 bg-accent/5 p-8 rounded-3xl">
+          <Card className="border-accent/20 bg-accent/5 p-8 rounded-3xl relative overflow-hidden">
+             <div className="absolute -right-4 -top-4 opacity-5"><Zap size={120} /></div>
              <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">Temporary NumVerify</p>
-             <h3 className="text-5xl font-black italic">{stats?.numverifyCount || 0}</h3>
+             <h3 className="text-5xl font-black italic">{loading ? "..." : (stats?.numverifyCount || 0)}</h3>
           </Card>
-          <Card className="border-red-500/20 bg-red-500/5 p-8 rounded-3xl flex items-center justify-between">
+          <Card className="border-red-500/20 bg-red-500/5 p-8 rounded-3xl flex items-center justify-between relative overflow-hidden">
+             <div className="absolute -right-4 -top-4 opacity-5"><ShieldAlert size={120} /></div>
              <div>
                <p className="text-[10px] font-black uppercase tracking-widest text-red-500/70 mb-2">System Health</p>
-               <h3 className="text-5xl font-black italic">ACTIVE</h3>
+               <h3 className="text-5xl font-black italic">{loading ? "BUSY" : "ACTIVE"}</h3>
              </div>
-             <Button variant="destructive" size="icon" onClick={handleClearKeys} disabled={isClearing} className="h-14 w-14 rounded-2xl">
+             <Button variant="destructive" size="icon" onClick={handleClearKeys} disabled={isClearing} className="h-14 w-14 rounded-2xl z-10">
                {isClearing ? <Loader2 className="animate-spin" /> : <Trash2 />}
              </Button>
           </Card>
@@ -240,7 +270,7 @@ export default function AdminPanel() {
         <Tabs defaultValue="dashboard">
           <TabsList className="bg-card/60 p-1 rounded-2xl h-14 mb-8">
             <TabsTrigger value="dashboard" className="rounded-xl px-8 font-black uppercase italic">Tools</TabsTrigger>
-            <TabsTrigger value="users" className="rounded-xl px-8 font-black uppercase italic">Users</TabsTrigger>
+            <TabsTrigger value="users" className="rounded-xl px-8 font-black uppercase italic">Users ({filteredUsers.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
@@ -262,40 +292,57 @@ export default function AdminPanel() {
                  <Terminal className="h-4 w-4 text-primary" />
                  <span className="text-[10px] font-black uppercase tracking-widest">Master Logs</span>
                </div>
-               <div className="p-4 h-48 overflow-y-auto font-code text-[11px] text-green-400 space-y-1">
-                 {logs.map((log, i) => <div key={i}>{log}</div>)}
+               <div className="p-4 h-64 overflow-y-auto font-code text-[11px] text-green-400 space-y-1 bg-black/80">
+                 {logs.length === 0 ? <div>[IDLE] Awaiting connection...</div> : logs.map((log, i) => <div key={i}>{log}</div>)}
                </div>
             </Card>
           </TabsContent>
 
           <TabsContent value="users">
              <Card className="border-white/5 bg-card/40 rounded-3xl overflow-hidden shadow-2xl">
-                <Table>
-                  <TableHeader className="bg-muted/10">
-                    <TableRow className="border-white/5">
-                      <TableHead className="px-8 py-6 uppercase font-black text-[10px]">Email</TableHead>
-                      <TableHead className="uppercase font-black text-[10px]">Credits</TableHead>
-                      <TableHead className="text-right px-8 uppercase font-black text-[10px]">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredUsers.map(user => (
-                      <TableRow key={user._id} className="border-white/5 hover:bg-white/5">
-                        <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
-                        <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
-                        <TableCell className="text-right px-8">
-                           <Button 
-                             onClick={() => handleUpdateCredits(user._id, user.credits)} 
-                             className="bg-primary rounded-xl font-black italic h-10 px-6"
-                             disabled={isUpdating === user._id}
-                           >
-                             {isUpdating === user._id ? <Loader2 className="animate-spin" /> : "EDIT"}
-                           </Button>
-                        </TableCell>
+                <div className="p-6 border-b border-white/5">
+                  <div className="relative max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                      placeholder="Search users..." 
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-10 bg-black/20 border-white/10 h-12 rounded-xl"
+                    />
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-muted/10">
+                      <TableRow className="border-white/5">
+                        <TableHead className="px-8 py-6 uppercase font-black text-[10px]">Email</TableHead>
+                        <TableHead className="uppercase font-black text-[10px]">Credits</TableHead>
+                        <TableHead className="text-right px-8 uppercase font-black text-[10px]">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {loading ? (
+                        <TableRow><TableCell colSpan={3} className="text-center py-10"><Loader2 className="animate-spin h-8 w-8 mx-auto opacity-20" /></TableCell></TableRow>
+                      ) : filteredUsers.length === 0 ? (
+                        <TableRow><TableCell colSpan={3} className="text-center py-10 opacity-20 font-bold">NO USERS FOUND</TableCell></TableRow>
+                      ) : filteredUsers.map(user => (
+                        <TableRow key={user._id} className="border-white/5 hover:bg-white/5">
+                          <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
+                          <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
+                          <TableCell className="text-right px-8">
+                            <Button 
+                              onClick={() => handleUpdateCredits(user._id, user.credits)} 
+                              className="bg-primary rounded-xl font-black italic h-10 px-6"
+                              disabled={isUpdating === user._id}
+                            >
+                              {isUpdating === user._id ? <Loader2 className="animate-spin" /> : "EDIT"}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
              </Card>
           </TabsContent>
         </Tabs>
