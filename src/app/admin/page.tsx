@@ -80,7 +80,7 @@ export default function AdminPanel() {
       
       if (statsRes && !statsRes.error) {
         setStats(statsRes);
-        addLog(`[STATS] Found ${statsRes.rapidCount} RapidKeys and ${statsRes.numverifyCount} NumVerify keys.`);
+        addLog(`[STATS] Sync complete. RapidKeys: ${statsRes.rapidCount || 0}, NumVerify: ${statsRes.numverifyCount || 0}`);
       } else if (statsRes?.error === 'WAKING_UP') {
         addLog(`[WARN] Backend is waking up. Retrying in 5s...`);
         setTimeout(() => fetchData(secret), 5000);
@@ -249,12 +249,12 @@ export default function AdminPanel() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="border-primary/20 bg-primary/5 p-8 rounded-3xl relative overflow-hidden">
              <div className="absolute -right-4 -top-4 opacity-5"><Database size={120} /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Permanent RapidKeys</p>
+             <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">RapidKeys (Permanent)</p>
              <h3 className="text-5xl font-black italic">{loading ? <Loader2 className="animate-spin h-8 w-8" /> : (stats?.rapidCount || 0)}</h3>
           </Card>
           <Card className="border-accent/20 bg-accent/5 p-8 rounded-3xl relative overflow-hidden">
              <div className="absolute -right-4 -top-4 opacity-5"><Zap size={120} /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">Temporary NumVerify</p>
+             <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">NumVerify (Temp)</p>
              <h3 className="text-5xl font-black italic">{loading ? <Loader2 className="animate-spin h-8 w-8" /> : (stats?.numverifyCount || 0)}</h3>
           </Card>
           <Card className="border-red-500/20 bg-red-500/5 p-8 rounded-3xl flex items-center justify-between relative overflow-hidden">
@@ -278,14 +278,14 @@ export default function AdminPanel() {
           <TabsContent value="dashboard" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
-                <h4 className="text-xl font-black italic mb-4">Upload RapidKeys (Threads)</h4>
+                <h4 className="text-xl font-black italic mb-4">Upload RapidKeys</h4>
                 <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
-                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Used for concurrent validation. Permanent.</p>
+                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Permanent keys for concurrent validation.</p>
               </Card>
               <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
-                <h4 className="text-xl font-black italic mb-4">Upload Numverify (Temp)</h4>
+                <h4 className="text-xl font-black italic mb-4">Upload Numverify</h4>
                 <Input type="file" onChange={(e) => processExcel(e, 'numverify')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
-                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Used for single validations. 100 hit limit.</p>
+                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Temporary keys with 100 hit limit.</p>
               </Card>
             </div>
 
