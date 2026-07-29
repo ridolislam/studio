@@ -1,7 +1,7 @@
-
 /**
  * VERCEL WORKER SCRIPT
- * Copy this content into your Vercel Project (e.g. api/validate.js)
+ * This script handles individual number validation using Cliproxy and RapidAPI.
+ * Copy this into a Vercel project (e.g., api/validate.js)
  */
 const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
@@ -27,12 +27,12 @@ module.exports = async (req, res) => {
       `https://apilayer-numverify-v1.p.rapidapi.com/validate?number=${number}&access_key=${apiKey}`,
       {
         httpsAgent: agent,
-        proxy: false, // Important to disable axios default proxy
+        proxy: false, 
         headers: {
           'x-rapidapi-key': rapidKey,
           'x-rapidapi-host': 'apilayer-numverify-v1.p.rapidapi.com'
         },
-        timeout: 8000
+        timeout: 15000 // Increased timeout for residential proxies
       }
     );
 
@@ -40,8 +40,9 @@ module.exports = async (req, res) => {
   } catch (error) {
     console.error('Worker Error:', error.message);
     return res.status(error.response?.status || 500).json({
-      error: 'Worker Failed',
-      message: error.message
+      valid: false,
+      number: number,
+      error: error.message
     });
   }
 };
