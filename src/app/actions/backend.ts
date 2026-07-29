@@ -1,7 +1,8 @@
 'use server';
 
 /**
- * @fileOverview Server Actions to proxy requests to the Render backend.
+ * @fileOverview Server Actions for numcheckr Ultimate Distributed System.
+ * Proxies requests to the Render backend (https://numcheckr.onrender.com).
  */
 
 const API_BASE = 'https://numcheckr.onrender.com';
@@ -13,18 +14,9 @@ async function safeJson(response: Response) {
       return await response.json();
     }
     const text = await response.text();
-    if (text.toLowerCase().includes('waking up') || text.toLowerCase().includes('starting')) {
-      return { 
-        success: false, 
-        message: "Server is waking up from sleep mode. Please try again in 30-45 seconds." 
-      };
-    }
-    return { 
-      success: false, 
-      message: `Unexpected server response: ${response.status} ${response.statusText}` 
-    };
+    return { success: false, message: text || `Server error: ${response.status}` };
   } catch (err) {
-    return { success: false, message: "Failed to read response from server." };
+    return { success: false, message: "Failed to parse server response." };
   }
 }
 
@@ -52,25 +44,21 @@ export async function syncUserProfile(email: string) {
     });
     return await safeJson(response);
   } catch (error) {
-    return { success: false };
+    return { success: false, message: 'Sync failed' };
   }
 }
 
-/**
- * DISTRIBUTED VALIDATION MANAGER
- * Calls the Render distributed endpoint which orchestrates Vercel workers.
- */
-export async function validateBatchDistributed(payload: { numbers: string[], email: string }) {
+export async function stopValidation(email: string) {
   try {
-    const response = await fetch(`${API_BASE}/api/user/validate-distributed`, {
+    const response = await fetch(`${API_BASE}/api/user/stop-validation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ email }),
       cache: 'no-store',
     });
     return await safeJson(response);
-  } catch (error: any) {
-    return { success: false, message: error.message || "Distributed validation failed." };
+  } catch (error) {
+    return { success: false, message: 'Failed to send stop signal' };
   }
 }
 
@@ -85,5 +73,92 @@ export async function getUserHistory(payload: { email: string }) {
     return await safeJson(response);
   } catch (error) {
     return { success: false, message: 'Connection failed' };
+  }
+}
+
+// --- ADMIN ACTIONS ---
+
+export async function uploadRapidKeys(payload: { secret: string, keys: string[] }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/upload-rapid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Upload failed' };
+  }
+}
+
+export async function uploadNumverifyKeys(payload: { secret: string, keys: string[] }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/upload-numverify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Upload failed' };
+  }
+}
+
+export async function updateAdminUser(payload: { secret: string, userId: string, credits: number }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/update-user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Update failed' };
+  }
+}
+
+export async function clearAdminKeys(payload: { secret: string }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/clear-all-keys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Wipe failed' };
+  }
+}
+
+export async function getAdminStats() {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/stats`, { cache: 'no-store' });
+    return await safeJson(response);
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function getAdminUsers() {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/users`, { cache: 'no-store' });
+    return await safeJson(response);
+  } catch (error) {
+    return [];
+  }
+}
+
+// --- PAYMENT ACTIONS ---
+
+export async function createOxapayInvoice(payload: { email: string, credits: number, payCurrency: string, network: string }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/create-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Payment gateway connection failed' };
   }
 }

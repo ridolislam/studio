@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -17,7 +16,8 @@ import {
   Zap,
   Terminal,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  Server
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -30,7 +30,8 @@ import {
   getAdminStats, 
   getAdminUsers, 
   updateAdminUser, 
-  uploadAdminKeys,
+  uploadRapidKeys,
+  uploadNumverifyKeys,
   clearAdminKeys
 } from "@/app/actions/backend";
 import { read, utils } from 'xlsx';
@@ -46,8 +47,8 @@ export default function AdminPanel() {
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
   const [logs, setLogs] = useState<string[]>([
-    "[SYSTEM] Admin Panel Connected.",
-    "[SYSTEM] Waiting for server logs..."
+    "[SYSTEM] Admin Terminal Initialized.",
+    "[AUTH] Ready for authorization..."
   ]);
   const [isMounted, setIsMounted] = useState(false);
   const { toast } = useToast();
@@ -63,23 +64,12 @@ export default function AdminPanel() {
     setLoading(true);
     try {
       const [statsRes, usersRes] = await Promise.all([getAdminStats(), getAdminUsers()]);
-      
-      if (statsRes) {
-        setStats(statsRes);
-      }
-
-      if (usersRes) {
-        setUsers(Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []));
-      }
-      
-      addLog(`[SYSTEM] Sync completed.`);
+      if (statsRes) setStats(statsRes);
+      if (usersRes) setUsers(Array.isArray(usersRes) ? usersRes : (usersRes.users || usersRes.data || []));
+      addLog(`[SYSTEM] Central Database Synced.`);
     } catch (err) {
-      addLog("[ERROR] Failed to connect to admin API.");
-      toast({ 
-        variant: "destructive", 
-        title: "Sync Error", 
-        description: "Failed to connect to admin API." 
-      });
+      addLog("[ERROR] Database connection timeout.");
+      toast({ variant: "destructive", title: "Sync Error", description: "Failed to connect to admin API." });
     } finally {
       setLoading(false);
     }
@@ -94,16 +84,9 @@ export default function AdminPanel() {
     if (secretInput === ADMIN_SECRET) {
       setIsAuthenticated(true);
       fetchData();
-      toast({
-        title: "Access Granted",
-        description: "Welcome to the Master Admin Panel.",
-      });
+      toast({ title: "Authorized", description: "Welcome to numcheckr Command Center." });
     } else {
-      toast({
-        variant: "destructive",
-        title: "Access Denied",
-        description: "Invalid Secret Key. Please try again.",
-      });
+      toast({ variant: "destructive", title: "Access Denied", description: "Invalid Master Secret." });
     }
   };
 
@@ -112,41 +95,35 @@ export default function AdminPanel() {
     if (newCredits === null) return;
     
     setIsUpdating(userId);
-    const res = await updateAdminUser({ userId, credits: parseInt(newCredits) });
+    const res = await updateAdminUser({ secret: ADMIN_SECRET, userId, credits: parseInt(newCredits) });
     if (res && res.success) {
-      addLog(`[USER] Updated credits for ${userId} to ${newCredits}`);
-      toast({ title: "Updated", description: "Credit Updated Successfully" });
+      addLog(`[CREDITS] Set ${userId} balance to ${newCredits}`);
+      toast({ title: "Success", description: "User credits updated." });
       fetchData();
     } else {
-      toast({ variant: "destructive", title: "Error", description: res?.message || "Failed to update user." });
+      toast({ variant: "destructive", title: "Update Failed", description: res?.message });
     }
     setIsUpdating(null);
   };
 
   const handleClearKeys = async () => {
-    if (!confirm("আপনি কি নিশ্চিত যে সব API Key ডিলিট করতে চান?")) return;
-
+    if (!confirm("Are you sure you want to WIPE all API keys?")) return;
     setIsClearing(true);
-    addLog(`[ADMIN] Clearing all API keys from database...`);
-    
     try {
-      const res = await clearAdminKeys();
+      const res = await clearAdminKeys({ secret: ADMIN_SECRET });
       if (res && res.success) {
-        addLog(`[SYSTEM] ${res.message}`);
+        addLog(`[WIPE] All keys cleared from database.`);
         toast({ title: "Success", description: res.message });
         fetchData();
-      } else {
-        addLog(`[ERROR] ${res?.message || "Failed to clear keys"}`);
-        toast({ variant: "destructive", title: "Error", description: res?.message || "Failed to clear keys" });
       }
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Connection failed" });
+      toast({ variant: "destructive", title: "Error", description: "Wipe failed." });
     } finally {
       setIsClearing(false);
     }
   };
 
-  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processExcel = (e: React.ChangeEvent<HTMLInputElement>, type: 'rapid' | 'numverify') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -158,27 +135,27 @@ export default function AdminPanel() {
         const sheetName = workbook.SheetNames[0];
         const rows: any[][] = utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
         
-        const keys = rows
-          .map(r => String(r[0] || '').trim())
-          .filter(k => k.length > 15);
+        const keys = rows.map(r => String(r[0] || '').trim()).filter(k => k.length > 5);
         
         if (keys.length === 0) {
-          toast({ variant: "destructive", title: "Invalid File", description: "No valid keys found." });
+          toast({ variant: "destructive", title: "Empty File", description: "No keys found in column A." });
           return;
         }
 
-        addLog(`[SYSTEM] Uploading ${keys.length} API keys...`);
-        const res = await uploadAdminKeys({ keys });
+        addLog(`[UPLOAD] Sending ${keys.length} ${type} keys...`);
+        const res = type === 'rapid' 
+          ? await uploadRapidKeys({ secret: ADMIN_SECRET, keys })
+          : await uploadNumverifyKeys({ secret: ADMIN_SECRET, keys });
         
         if (res && res.success) {
-          addLog(`[SYSTEM] Keys uploaded: ${res.message}`);
-          toast({ title: "Success", description: res.message });
+          addLog(`[SUCCESS] ${type.toUpperCase()} keys active.`);
+          toast({ title: "Keys Active", description: res.message });
           fetchData();
         } else {
           toast({ variant: "destructive", title: "Upload Failed", description: res?.message });
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Error", description: "Failed to parse Excel file." });
+        toast({ variant: "destructive", title: "Error", description: "Excel parsing failed." });
       }
     };
     reader.readAsBinaryString(file);
@@ -189,219 +166,137 @@ export default function AdminPanel() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="absolute inset-0 bg-primary/5 blur-[120px] rounded-full"></div>
-        <Card className="w-full max-w-md border-primary/20 bg-card/60 backdrop-blur-2xl shadow-2xl relative overflow-hidden rounded-3xl">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-accent to-primary"></div>
+        <Card className="w-full max-w-md border-primary/20 bg-card/60 backdrop-blur-2xl shadow-2xl overflow-hidden rounded-3xl">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
           <CardHeader className="text-center pt-10">
             <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6 border border-primary/20">
               <Lock className="h-8 w-8 text-primary" />
             </div>
-            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter text-3d">Master Access</CardTitle>
-            <CardDescription className="font-bold uppercase tracking-widest text-[10px] text-muted-foreground mt-2">
-              Unauthorized access is strictly prohibited
-            </CardDescription>
+            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter">Command Center</CardTitle>
           </CardHeader>
           <CardContent className="p-8">
             <form onSubmit={handleAdminLogin} className="space-y-6">
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Admin Secret Key</label>
-                <div className="relative">
-                  <Input 
-                    type="password"
-                    placeholder="••••••••••••"
-                    value={secretInput}
-                    onChange={(e) => setSecretInput(e.target.value)}
-                    className="h-14 bg-black/40 border-white/10 rounded-xl pl-12 font-black italic"
-                    autoFocus
-                  />
-                  <ShieldAlert className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary/50" />
-                </div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-primary">Master Secret</label>
+                <Input 
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={secretInput}
+                  onChange={(e) => setSecretInput(e.target.value)}
+                  className="h-14 bg-black/40 border-white/10 rounded-xl font-black italic"
+                  autoFocus
+                />
               </div>
-              <Button 
-                type="submit" 
-                className="w-full h-14 bg-primary hover:bg-primary/90 text-white font-black italic text-lg rounded-xl shadow-lg shadow-primary/20 group"
-              >
-                AUTHORIZE <Unlock className="ml-2 h-5 w-5 group-hover:scale-110 transition-transform" />
+              <Button type="submit" className="w-full h-14 bg-primary text-white font-black italic rounded-xl">
+                AUTHORIZE <Unlock className="ml-2 h-5 w-5" />
               </Button>
             </form>
           </CardContent>
-          <div className="p-6 bg-muted/20 border-t border-white/5 text-center">
-            <Button variant="ghost" onClick={() => router.push("/dashboard")} className="text-xs font-bold uppercase tracking-widest opacity-60 hover:opacity-100">
-              <ArrowLeft className="h-3 w-3 mr-2" /> Back to Safety
-            </Button>
-          </div>
         </Card>
       </div>
     );
   }
 
-  const usersArray = Array.isArray(users) ? users : [];
-  const searchLower = String(search || "").toLowerCase();
-  const filteredUsers = usersArray.filter(u => {
-    if (!u) return false;
-    const email = String(u.email || "").toLowerCase();
-    return email.includes(searchLower);
-  });
+  const filteredUsers = (Array.isArray(users) ? users : []).filter(u => 
+    String(u?.email || "").toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="container mx-auto max-w-7xl space-y-8 animate-in fade-in duration-500">
-        <div className="flex flex-col md:flex-row items-center justify-between bg-card/50 p-6 md:p-8 rounded-3xl border border-white/5 backdrop-blur-sm gap-6">
+        <div className="flex items-center justify-between bg-card/50 p-8 rounded-3xl border border-white/5 backdrop-blur-sm">
           <div className="flex items-center gap-4">
             <Logo size={56} />
             <div className="flex flex-col">
-              <h1 className="text-2xl md:text-4xl font-black italic tracking-tighter text-foreground uppercase text-3d leading-none">Admin Panel</h1>
-              <div className="text-[10px] font-black uppercase tracking-[0.2em] text-primary mt-2 flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-primary animate-pulse" /> Master Terminal
-              </div>
+              <h1 className="text-4xl font-black italic tracking-tighter text-3d uppercase">Admin Terminal</h1>
+              <div className="text-[10px] font-black uppercase tracking-widest text-primary mt-1">System Orchestrator</div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <Button variant="outline" onClick={() => router.push("/dashboard")} className="rounded-xl h-12 border-white/10 hover:bg-white/5 text-xs font-bold">
-              <ArrowLeft className="h-4 w-4 mr-2" /> EXIT
-            </Button>
-            <Button variant="ghost" size="icon" onClick={fetchData} className="h-12 w-12 rounded-xl bg-white/5">
-              <RefreshCcw className={loading ? "h-5 w-5 animate-spin" : "h-5 w-5"} />
-            </Button>
-          </div>
+          <Button variant="outline" onClick={() => router.push("/dashboard")} className="rounded-xl h-12 font-bold">
+            <ArrowLeft className="h-4 w-4 mr-2" /> EXIT
+          </Button>
         </div>
 
-        <Tabs defaultValue="dashboard" className="w-full">
-          <TabsList className="grid w-full md:w-[600px] grid-cols-2 bg-card/60 border border-white/5 p-1 rounded-2xl h-14 md:h-16 mb-8">
-            <TabsTrigger value="dashboard" className="rounded-xl font-black italic uppercase text-[10px] md:text-xs h-full data-[state=active]:bg-primary">
-              <LayoutDashboard className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">Dashboard</span>
-            </TabsTrigger>
-            <TabsTrigger value="users" className="rounded-xl font-black italic uppercase text-[10px] md:text-xs h-full data-[state=active]:bg-primary">
-              <Users className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">User Management</span>
-            </TabsTrigger>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="border-primary/20 bg-primary/5 p-8 rounded-3xl">
+             <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Permanent RapidKeys</p>
+             <h3 className="text-5xl font-black italic">{stats?.rapidCount || 0}</h3>
+          </Card>
+          <Card className="border-accent/20 bg-accent/5 p-8 rounded-3xl">
+             <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">Temporary NumVerify</p>
+             <h3 className="text-5xl font-black italic">{stats?.numverifyCount || 0}</h3>
+          </Card>
+          <Card className="border-red-500/20 bg-red-500/5 p-8 rounded-3xl flex items-center justify-between">
+             <div>
+               <p className="text-[10px] font-black uppercase tracking-widest text-red-500/70 mb-2">System Health</p>
+               <h3 className="text-5xl font-black italic">ACTIVE</h3>
+             </div>
+             <Button variant="destructive" size="icon" onClick={handleClearKeys} disabled={isClearing} className="h-14 w-14 rounded-2xl">
+               {isClearing ? <Loader2 className="animate-spin" /> : <Trash2 />}
+             </Button>
+          </Card>
+        </div>
+
+        <Tabs defaultValue="dashboard">
+          <TabsList className="bg-card/60 p-1 rounded-2xl h-14 mb-8">
+            <TabsTrigger value="dashboard" className="rounded-xl px-8 font-black uppercase italic">Tools</TabsTrigger>
+            <TabsTrigger value="users" className="rounded-xl px-8 font-black uppercase italic">Users</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dashboard" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card className="border-primary/20 bg-primary/5 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
-                <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <Key size={120} />
-                </div>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary/70 mb-2">Active API Keys</p>
-                    <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.totalKeys || 0}</h3>
-                  </div>
-                  <Button 
-                    variant="destructive" 
-                    size="sm" 
-                    className="rounded-xl h-10 font-black italic text-[10px] uppercase shadow-lg shadow-destructive/20 border-2 border-white/10"
-                    onClick={handleClearKeys}
-                    disabled={isClearing}
-                  >
-                    {isClearing ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Trash2 className="h-3 w-3 mr-2" /> CLEAR ALL</>}
-                  </Button>
-                </div>
+              <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
+                <h4 className="text-xl font-black italic mb-4">Upload RapidKeys (Threads)</h4>
+                <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
+                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Permanent keys used for concurrency count.</p>
               </Card>
-              <Card className="border-blue-500/20 bg-blue-500/5 p-6 md:p-8 rounded-3xl relative overflow-hidden group">
-                <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                  <Zap size={120} />
-                </div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500/70 mb-2">Remaining Hits</p>
-                <h3 className="text-4xl md:text-6xl font-black italic tracking-tighter">{stats?.remainingHits || 0}</h3>
+              <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
+                <h4 className="text-xl font-black italic mb-4">Upload Numverify (Temp)</h4>
+                <Input type="file" onChange={(e) => processExcel(e, 'numverify')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
+                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Disposable keys with 100 hit limit.</p>
               </Card>
             </div>
 
-            <Card className="border-white/5 bg-card/40 backdrop-blur-xl p-8 rounded-3xl shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
-              <h3 className="text-xl font-black italic mb-4">Upload API Keys (Excel)</h3>
-              <div className="flex flex-col space-y-4">
-                <Input 
-                  type="file" 
-                  id="excelFile" 
-                  onChange={handleExcelUpload} 
-                  className="bg-black/20 border-white/10 rounded-xl h-16 py-4 px-6 file:font-black file:italic file:bg-primary file:text-white file:rounded-lg file:border-0 hover:file:bg-primary/90" 
-                  accept=".xlsx,.xls" 
-                />
-                <div className="flex items-center gap-2 p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
-                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-200/70">
-                    Select an .xlsx or .xls file containing keys in the first column. Existing keys will be kept.
-                  </p>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden">
+            <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden shadow-xl">
                <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
                  <Terminal className="h-4 w-4 text-primary" />
-                 <span className="text-[10px] font-black uppercase tracking-widest">Live Server Logs</span>
+                 <span className="text-[10px] font-black uppercase tracking-widest">Master Logs</span>
                </div>
-               <div className="p-4 h-40 overflow-y-auto font-code text-[11px] space-y-1 text-green-400">
-                 {logs.map((log, i) => (
-                   <div key={i}>{log}</div>
-                 ))}
+               <div className="p-4 h-48 overflow-y-auto font-code text-[11px] text-green-400 space-y-1">
+                 {logs.map((log, i) => <div key={i}>{log}</div>)}
                </div>
             </Card>
           </TabsContent>
 
-          <TabsContent value="users" className="space-y-6">
-            <Card className="border-white/5 bg-card/40 backdrop-blur-xl rounded-3xl overflow-hidden shadow-2xl">
-              <CardHeader className="p-6 md:p-8 border-b border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 bg-muted/5">
-                <div className="relative w-full max-w-md">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                  <Input 
-                    placeholder="Search database..." 
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-12 h-14 bg-black/20 border-white/10 rounded-2xl font-bold italic"
-                  />
-                </div>
-                <Button onClick={fetchData} className="rounded-xl h-14 bg-primary px-8 font-black italic">
-                  REFRESH LIST
-                </Button>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="border-white/5 bg-muted/10 h-16">
-                        <TableHead className="px-6 md:px-8 uppercase text-[10px] font-black tracking-[0.2em]">User Email</TableHead>
-                        <TableHead className="uppercase text-[10px] font-black tracking-[0.2em]">Credits Balance</TableHead>
-                        <TableHead className="uppercase text-[10px] font-black tracking-[0.2em]">Activity</TableHead>
-                        <TableHead className="uppercase text-[10px] font-black tracking-[0.2em] text-right px-6 md:px-8">Actions</TableHead>
+          <TabsContent value="users">
+             <Card className="border-white/5 bg-card/40 rounded-3xl overflow-hidden shadow-2xl">
+                <Table>
+                  <TableHeader className="bg-muted/10">
+                    <TableRow className="border-white/5">
+                      <TableHead className="px-8 py-6 uppercase font-black text-[10px]">Email</TableHead>
+                      <TableHead className="uppercase font-black text-[10px]">Credits</TableHead>
+                      <TableHead className="text-right px-8 uppercase font-black text-[10px]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredUsers.map(user => (
+                      <TableRow key={user._id} className="border-white/5 hover:bg-white/5">
+                        <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
+                        <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
+                        <TableCell className="text-right px-8">
+                           <Button 
+                             onClick={() => handleUpdateCredits(user._id, user.credits)} 
+                             className="bg-primary rounded-xl font-black italic h-10 px-6"
+                             disabled={isUpdating === user._id}
+                           >
+                             {isUpdating === user._id ? <Loader2 className="animate-spin" /> : "EDIT"}
+                           </Button>
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading && filteredUsers.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={4} className="h-64 text-center">
-                            <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
-                            <p className="font-black italic uppercase text-xs">Fetching Server Data...</p>
-                          </TableCell>
-                        </TableRow>
-                      ) : filteredUsers.map((user) => (
-                        <TableRow key={user._id || user.email} className="border-white/5 hover:bg-white/5 h-20 group transition-colors">
-                          <TableCell className="px-6 md:px-8">
-                            <span className="font-black italic text-base md:text-lg">{user.email || "N/A"}</span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="font-black italic text-lg text-primary">{user.credits ?? 0}</span>
-                          </TableCell>
-                          <TableCell>
-                            <span className="text-xs font-bold text-muted-foreground uppercase">{user.history?.length || 0} events</span>
-                          </TableCell>
-                          <TableCell className="text-right px-6 md:px-8">
-                            <Button 
-                              className="bg-primary hover:bg-primary/90 rounded-xl h-10 md:h-12 font-black italic px-4 md:px-6 shadow-lg shadow-primary/10 transition-all active:scale-95"
-                              disabled={isUpdating === (user._id || user.email)}
-                              onClick={() => handleUpdateCredits(user._id || user.email, user.credits || 0)}
-                            >
-                              {isUpdating === (user._id || user.email) ? <Loader2 className="h-4 w-4 animate-spin" /> : "EDIT"}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
+                    ))}
+                  </TableBody>
+                </Table>
+             </Card>
           </TabsContent>
         </Tabs>
       </div>

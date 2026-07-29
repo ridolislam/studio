@@ -7,7 +7,6 @@ import {
   Loader2, 
   CheckCircle2, 
   Copy, 
-  Wallet, 
   CreditCard, 
   Mail, 
   Zap,
@@ -20,18 +19,14 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import Logo from "@/components/Logo";
 import { cn } from "@/lib/utils";
+import { createOxapayInvoice } from "@/app/actions/backend";
 
 const COINS = [
+  { id: 'USDT', name: 'Tether (USDT)', network: 'TRC20', icon: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },
   { id: 'BTC', name: 'Bitcoin', network: 'BTC', icon: 'https://cryptologos.cc/logos/bitcoin-btc-logo.png' },
   { id: 'ETH', name: 'Ethereum', network: 'ERC20', icon: 'https://cryptologos.cc/logos/ethereum-eth-logo.png' },
   { id: 'LTC', name: 'Litecoin', network: 'LTC', icon: 'https://cryptologos.cc/logos/litecoin-ltc-logo.png' },
   { id: 'TRX', name: 'Tron (TRX)', network: 'TRC20', icon: 'https://cryptologos.cc/logos/tron-trx-logo.png' },
-  { id: 'USDT', name: 'Tether (USDT)', network: 'TRC20', icon: 'https://cryptologos.cc/logos/tether-usdt-logo.png' },
-  { id: 'TON', name: 'Toncoin', network: 'TON', icon: 'https://cryptologos.cc/logos/toncoin-ton-logo.png' },
-  { id: 'SHIB', name: 'Shiba Inu', network: 'ERC20', icon: 'https://cryptologos.cc/logos/shiba-inu-shib-logo.png' },
-  { id: 'DOGE', name: 'Dogecoin', network: 'DOGE', icon: 'https://cryptologos.cc/logos/dogecoin-doge-logo.png' },
-  { id: 'SOL', name: 'Solana', network: 'SOL', icon: 'https://cryptologos.cc/logos/solana-sol-logo.png' },
-  { id: 'MATIC', name: 'Polygon', network: 'POLYGON', icon: 'https://cryptologos.cc/logos/polygon-matic-logo.png' },
 ];
 
 function PaymentContent() {
@@ -41,12 +36,11 @@ function PaymentContent() {
 
   const [user, setUser] = useState<any>(null);
   const [credits, setCredits] = useState<number>(parseInt(searchParams.get('credits') || "500"));
-  const [selectedCoin, setSelectedCoin] = useState<any>(null);
+  const [selectedCoin, setSelectedCoin] = useState<any>(COINS[0]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [paymentData, setPaymentData] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // FIXED RATE: $0.0008 per credit as specified
   const PRICE_PER_CREDIT = 0.0008; 
   const totalPrice = (credits * PRICE_PER_CREDIT).toFixed(4);
 
@@ -60,32 +54,24 @@ function PaymentContent() {
   }, [router]);
 
   const handlePayNow = async () => {
-    if (!selectedCoin) return;
-    
+    if (!selectedCoin || !user) return;
     setIsGenerating(true);
     setErrorMsg(null);
-    
     try {
-      const res = await fetch('https://numcheckr.onrender.com/api/user/create-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: user.email, 
-          credits: credits, 
-          payCurrency: selectedCoin.id, 
-          network: selectedCoin.network 
-        })
+      const res = await createOxapayInvoice({ 
+        email: user.email, 
+        credits, 
+        payCurrency: selectedCoin.id, 
+        network: selectedCoin.network 
       });
-      const data = await res.json();
-      
-      if (data.success) {
-        setPaymentData(data);
-        toast({ title: "Invoice Generated", description: "Payment address ready." });
+      if (res.success) {
+        setPaymentData(res);
+        toast({ title: "Invoice Created", description: "Payment address is ready." });
       } else {
-        setErrorMsg(`Gateway Error: ${data.message || "Failed to connect"}`);
+        setErrorMsg(res.message || "Failed to initiate payment");
       }
     } catch (err) {
-      setErrorMsg("Gateway Error: Connection failed to server.");
+      setErrorMsg("Gateway Error: Connection failed.");
     } finally {
       setIsGenerating(false);
     }
@@ -93,211 +79,115 @@ function PaymentContent() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copied!", description: "Address copied to clipboard." });
+    toast({ title: "Copied", description: "Wallet address copied." });
   };
 
   if (!user) return null;
 
   return (
     <div className="container mx-auto max-w-7xl px-4 py-8 space-y-10">
-      <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-        <Button 
-          variant="ghost" 
-          className="rounded-xl border border-white/5 bg-card/40 backdrop-blur-sm hover:bg-white/10"
-          onClick={() => router.push("/credits")}
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Credits
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" className="rounded-xl border border-white/5" onClick={() => router.push("/credits")}>
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back
         </Button>
         <div className="flex items-center gap-3">
-          <Logo size={48} />
-          <h1 className="text-4xl font-black italic text-3d tracking-tighter">
-            num<span className="text-primary">checkr</span>
-          </h1>
+          <Logo size={42} />
+          <h1 className="text-3xl font-black italic text-3d tracking-tighter uppercase">numcheckr</h1>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-4 space-y-6">
-          <Card className="sticky top-24 border-white/10 bg-card/60 backdrop-blur-2xl shadow-2xl overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
+        <div className="lg:col-span-4">
+          <Card className="border-white/10 bg-card/60 backdrop-blur-2xl shadow-2xl overflow-hidden relative">
+            <div className="absolute top-0 left-0 w-full h-1 bg-primary"></div>
             <CardHeader>
-              <CardTitle className="text-xl font-black italic uppercase tracking-tighter">Order Summary</CardTitle>
-              <CardDescription className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Confirm your purchase details</CardDescription>
+              <CardTitle className="text-xl font-black italic uppercase">Order Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Credits Amount</label>
-                  <div className="relative">
-                    <Input 
-                      id="creditsInput"
-                      type="number"
-                      value={credits}
-                      onChange={(e) => setCredits(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="h-14 text-2xl font-black italic bg-black/20 border-white/10 rounded-xl pl-12"
-                      disabled={!!paymentData}
-                    />
-                    <Zap className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary" />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-primary/5 rounded-2xl border border-primary/10">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-primary/10 rounded-lg"><CreditCard className="h-4 w-4 text-primary" /></div>
-                    <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Total USD</span>
-                  </div>
-                  <span className="text-2xl font-black italic text-foreground">${totalPrice}</span>
-                </div>
-
-                <div className="flex items-center gap-3 p-4 bg-white/5 rounded-2xl border border-white/5">
-                  <div className="p-2 bg-white/5 rounded-lg"><Mail className="h-4 w-4 text-muted-foreground" /></div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Account</span>
-                    <span className="text-xs font-bold italic truncate">{user.email}</span>
-                  </div>
-                </div>
+              <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10">
+                 <div className="flex justify-between items-center mb-1">
+                   <span className="text-[10px] font-black uppercase opacity-50">Quantity</span>
+                   <Badge variant="outline" className="bg-primary text-white border-none">{credits} Credits</Badge>
+                 </div>
+                 <div className="flex items-baseline gap-1">
+                   <span className="text-4xl font-black italic">${totalPrice}</span>
+                   <span className="text-xs font-bold uppercase opacity-50">USD</span>
+                 </div>
               </div>
 
-              {errorMsg && (
-                <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                  <AlertCircle className="h-5 w-5 text-destructive shrink-0" />
-                  <p className="text-xs font-bold text-destructive">{errorMsg}</p>
-                </div>
-              )}
-
-              {selectedCoin && !paymentData && !errorMsg && (
-                <div className="space-y-4 animate-in zoom-in-95">
-                  <div className="flex items-center justify-between p-4 bg-primary/10 border border-primary/20 rounded-2xl">
-                    <div className="flex items-center gap-3">
-                      <img src={selectedCoin.icon} alt={selectedCoin.name} className="w-8 h-8" />
-                      <div>
-                        <p className="text-sm font-black italic leading-none">{selectedCoin.name}</p>
-                        <p className="text-[9px] font-bold text-muted-foreground uppercase">{selectedCoin.network}</p>
+              {!paymentData && (
+                <div className="space-y-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">Select Currency</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {COINS.map(coin => (
+                      <div 
+                        key={coin.id} 
+                        onClick={() => setSelectedCoin(coin)}
+                        className={cn(
+                          "p-4 rounded-xl border-2 transition-all cursor-pointer flex items-center justify-between",
+                          selectedCoin?.id === coin.id ? "border-primary bg-primary/10" : "border-white/5 bg-muted/20 hover:bg-muted/30"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <img src={coin.icon} className="w-6 h-6" alt="" />
+                          <span className="font-black italic uppercase">{coin.name}</span>
+                        </div>
+                        <span className="text-[9px] font-bold opacity-50">{coin.network}</span>
                       </div>
-                    </div>
-                    <CheckCircle2 className="h-5 w-5 text-primary" />
+                    ))}
                   </div>
-                  <Button 
-                    onClick={handlePayNow}
-                    disabled={isGenerating}
-                    className="w-full h-16 bg-primary hover:bg-primary/90 text-white text-lg font-black italic rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-[1.02] active:scale-95"
-                  >
-                    {isGenerating ? <Loader2 className="animate-spin" /> : "PAY NOW"}
+                  <Button onClick={handlePayNow} disabled={isGenerating} className="w-full h-16 bg-primary text-lg font-black italic rounded-xl">
+                    {isGenerating ? <Loader2 className="animate-spin" /> : "GENERATE ADDRESS"}
                   </Button>
                 </div>
               )}
+
+              {errorMsg && <div className="p-4 bg-destructive/10 text-destructive text-xs font-bold rounded-xl flex items-center gap-2 animate-pulse"><AlertCircle className="h-4 w-4" /> {errorMsg}</div>}
             </CardContent>
           </Card>
         </div>
 
         <div className="lg:col-span-8">
           {paymentData ? (
-            <Card className="border-green-500/20 bg-green-500/5 backdrop-blur-xl shadow-2xl animate-in fade-in zoom-in-95 duration-500">
-              <CardHeader className="text-center border-b border-white/5 pb-8">
-                <div className="mx-auto w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mb-4">
-                  <CheckCircle2 className="h-10 w-10 text-green-500" />
-                </div>
-                <CardTitle className="text-3xl font-black italic uppercase tracking-tighter">Payment Initiated</CardTitle>
-                <CardDescription className="text-xs font-bold uppercase tracking-widest text-green-500/70">Please complete the transaction below</CardDescription>
-              </CardHeader>
-              <CardContent className="p-8 md:p-12">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+            <Card className="border-green-500/20 bg-green-500/5 backdrop-blur-xl shadow-2xl p-8 md:p-12 animate-in zoom-in-95 duration-500">
+               <div className="text-center mb-12">
+                  <div className="mx-auto w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mb-4">
+                    <CheckCircle2 className="h-10 w-10 text-green-500" />
+                  </div>
+                  <h2 className="text-3xl font-black italic uppercase tracking-tighter">Awaiting Transaction</h2>
+               </div>
+
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
                   <div className="space-y-8">
                     <div className="space-y-2">
-                      <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Send Exactly</p>
-                      <div className="flex items-baseline gap-2">
-                        <h3 className="text-4xl font-black italic text-yellow-500">{paymentData.payAmount}</h3>
-                        <span className="text-xl font-black italic text-muted-foreground">{paymentData.payCurrency}</span>
-                      </div>
+                      <p className="text-[10px] font-black uppercase opacity-60">Amount to send</p>
+                      <h3 className="text-4xl font-black italic text-primary">{paymentData.payAmount} <span className="text-xl text-muted-foreground">{paymentData.payCurrency}</span></h3>
                     </div>
-
-                    <div className="space-y-4">
-                      <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Wallet Address</p>
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase opacity-60">Wallet Address</p>
                       <div className="relative group">
-                        <div className="bg-black/40 p-5 rounded-2xl border border-white/10 text-xs font-code break-all leading-relaxed shadow-inner">
-                          {paymentData.address}
-                        </div>
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 hover:text-primary hover:bg-primary/10 rounded-xl"
-                          onClick={() => copyToClipboard(paymentData.address)}
-                        >
-                          <Copy className="h-5 w-5" />
-                        </Button>
+                        <div className="bg-black/40 p-5 rounded-xl border border-white/10 text-xs font-code break-all shadow-inner">{paymentData.address}</div>
+                        <Button size="icon" variant="ghost" className="absolute right-2 top-1/2 -translate-y-1/2" onClick={() => copyToClipboard(paymentData.address)}><Copy className="h-4 w-4" /></Button>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5">
-                      <Loader2 className="h-5 w-5 text-primary animate-spin" />
-                      <p className="text-xs font-bold italic text-muted-foreground">Waiting for blockchain confirmation...</p>
+                    <div className="flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/5 animate-pulse">
+                      <Loader2 className="h-4 w-4 text-primary animate-spin" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Monitoring blockchain...</span>
                     </div>
                   </div>
-
-                  <div className="flex flex-col items-center justify-center space-y-4">
-                    <div className="relative">
-                      <div className="absolute -inset-4 bg-primary/20 blur-2xl rounded-full"></div>
-                      <div className="relative bg-white p-4 rounded-3xl border-8 border-white shadow-2xl">
-                        {paymentData.qrcode && (
-                           <img 
-                            src={paymentData.qrcode} 
-                            alt="QR Code" 
-                            className="w-48 h-48 md:w-64 md:h-64"
-                            style={{ display: 'block' }}
-                           />
-                        )}
-                      </div>
+                  <div className="flex flex-col items-center">
+                    <div className="p-4 bg-white rounded-3xl border-8 border-white shadow-2xl">
+                       <img src={paymentData.qrcode} className="w-48 h-48 md:w-64 md:h-64" alt="QR" />
                     </div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                      Scan with your wallet <ExternalLink className="h-3 w-3" />
-                    </p>
+                    <p className="mt-4 text-[10px] font-black uppercase opacity-50 flex items-center gap-2">Secure Oxapay Link <ExternalLink className="h-3 w-3" /></p>
                   </div>
-                </div>
-              </CardContent>
+               </div>
             </Card>
           ) : (
-            <Card className="border-white/5 bg-card/40 backdrop-blur-xl shadow-2xl">
-              <CardHeader>
-                <CardTitle className="text-2xl font-black italic uppercase tracking-tighter">Select Payment Coin</CardTitle>
-                <CardDescription className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Choose your preferred cryptocurrency</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                  {COINS.map((coin) => (
-                    <div 
-                      key={coin.id}
-                      onClick={() => setSelectedCoin(coin)}
-                      className={cn(
-                        "group p-6 rounded-2xl border-2 transition-all cursor-pointer text-center space-y-4 relative overflow-hidden",
-                        selectedCoin?.id === coin.id 
-                          ? "border-primary bg-primary/10 scale-105 shadow-[0_0_20px_rgba(113,85,255,0.3)]" 
-                          : "border-white/5 bg-muted/20 hover:border-primary/30 hover:bg-muted/30"
-                      )}
-                    >
-                      {selectedCoin?.id === coin.id && (
-                        <div className="absolute top-2 right-2">
-                          <CheckCircle2 className="h-4 w-4 text-primary" />
-                        </div>
-                      )}
-                      <img 
-                        src={coin.icon} 
-                        alt={coin.name} 
-                        className="w-14 h-14 mx-auto drop-shadow-xl group-hover:scale-110 transition-transform duration-300" 
-                      />
-                      <div className="space-y-1">
-                         <p className={cn(
-                           "text-sm font-black uppercase tracking-tighter transition-colors",
-                           selectedCoin?.id === coin.id ? "text-primary" : "text-foreground"
-                         )}>
-                           {coin.id}
-                         </p>
-                         <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">{coin.network}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <div className="h-full flex flex-col items-center justify-center opacity-20 border-2 border-dashed border-white/10 rounded-3xl p-20">
+               <Zap className="h-20 w-20 mb-4" />
+               <p className="font-black italic uppercase tracking-widest text-xl">Select Coin to Begin</p>
+            </div>
           )}
         </div>
       </div>
@@ -308,11 +198,7 @@ function PaymentContent() {
 export default function PaymentMethodPage() {
   return (
     <div className="min-h-screen bg-background">
-      <Suspense fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-        </div>
-      }>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>}>
         <PaymentContent />
       </Suspense>
     </div>
