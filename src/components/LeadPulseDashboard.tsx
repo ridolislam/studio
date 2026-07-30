@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -79,7 +78,6 @@ export default function LeadPulseDashboard() {
       return;
     }
     
-    // Initial credits load from localStorage
     try {
       const userData = JSON.parse(userStr);
       setCredits(userData.credits || 0);
@@ -88,7 +86,6 @@ export default function LeadPulseDashboard() {
     fetchAndSyncProfile();
     fetchHistory();
 
-    // Listen for global credit updates
     const handleCreditUpdate = (event: any) => {
       if (event.detail && typeof event.detail.credits !== 'undefined') {
         setCredits(event.detail.credits);
@@ -112,7 +109,6 @@ export default function LeadPulseDashboard() {
         setCredits(res.credits);
         const updatedUser = { ...userData, credits: res.credits };
         localStorage.setItem('user', JSON.stringify(updatedUser));
-        // Broadcast change
         window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
       }
     } catch (e) {
@@ -281,7 +277,6 @@ export default function LeadPulseDashboard() {
       }
     } finally {
       setIsProcessing(false);
-      // Vital: Sync after any validation session ends
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
@@ -305,13 +300,14 @@ export default function LeadPulseDashboard() {
     
     setIsProcessing(false);
     toast({ variant: "destructive", title: "Stop Signal Sent", description: "Server loop termination requested." });
-    
-    // Sync credits after stopping
     setTimeout(fetchAndSyncProfile, 1000);
   };
 
   const downloadExcel = (data: ValidationResult[], fileName: string) => {
-    if (data.length === 0) return;
+    if (data.length === 0) {
+      toast({ variant: "destructive", title: "No Data", description: "No records to export." });
+      return;
+    }
     const ws = XLSX.utils.json_to_sheet(data.map(item => ({
       Number: item.number,
       Type: item.type,
@@ -323,6 +319,24 @@ export default function LeadPulseDashboard() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
     XLSX.writeFile(wb, `${fileName}.xlsx`);
+  };
+
+  const downloadFilteredResults = (type: 'mobile' | 'landline' | 'invalid') => {
+    let filtered: ValidationResult[] = [];
+    let fileName = "";
+
+    if (type === 'mobile') {
+      filtered = results.filter(r => r.type.toLowerCase().includes('mobile') && r.status === 'success');
+      fileName = "numcheckr_Mobile_Results";
+    } else if (type === 'landline') {
+      filtered = results.filter(r => !r.type.toLowerCase().includes('mobile') && r.status === 'success');
+      fileName = "numcheckr_Landline_Results";
+    } else {
+      filtered = results.filter(r => r.status === 'invalid');
+      fileName = "numcheckr_Invalid_Results";
+    }
+
+    downloadExcel(filtered, fileName);
   };
 
   if (!isMounted) return null;
@@ -409,16 +423,34 @@ export default function LeadPulseDashboard() {
 
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-3 gap-4">
-                <Card className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-green-500 mb-1">Mobile</p>
+                <Card 
+                  onClick={() => downloadFilteredResults('mobile')}
+                  className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-green-500/10 transition-all active:scale-95 group"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-green-500">Mobile</p>
+                    <Download className="h-3 w-3 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <h3 className="text-3xl font-black italic">{counts.mobile}</h3>
                 </Card>
-                <Card className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-500 mb-1">Landline</p>
+                <Card 
+                  onClick={() => downloadFilteredResults('landline')}
+                  className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-blue-500/10 transition-all active:scale-95 group"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Landline</p>
+                    <Download className="h-3 w-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <h3 className="text-3xl font-black italic">{counts.landline}</h3>
                 </Card>
-                <Card className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl border-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-red-500 mb-1">Invalid</p>
+                <Card 
+                  onClick={() => downloadFilteredResults('invalid')}
+                  className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-red-500/10 transition-all active:scale-95 group"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Invalid</p>
+                    <Download className="h-3 w-3 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                   <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
                 </Card>
               </div>
@@ -441,7 +473,7 @@ export default function LeadPulseDashboard() {
                     size="sm" 
                     variant="outline" 
                     className="h-8 rounded-lg text-[10px] font-black uppercase border-primary/30 text-primary"
-                    onClick={() => downloadExcel(results, 'numcheckr_Results')}
+                    onClick={() => downloadExcel(results, 'numcheckr_Full_Results')}
                   >
                     <FileSpreadsheet className="h-3 w-3 mr-2" /> Export XLSX
                   </Button>
