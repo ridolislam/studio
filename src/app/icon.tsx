@@ -2,12 +2,11 @@ import { ImageResponse } from 'next/og';
 
 /**
  * @fileOverview Dynamic Favicon generator for numcheckr.
- * Generates a high-quality 48x48 PNG icon (Google recommended size).
+ * Generates a high-quality 48x48 PNG icon matching the brand identity.
  */
 
 export const runtime = 'edge';
 
-// Image metadata - Google requires multiples of 48px
 export const size = {
   width: 48,
   height: 48,
@@ -17,25 +16,39 @@ export const contentType = 'image/png';
 export default function Icon() {
   return new ImageResponse(
     (
-      // Favicon JSX element matching brand identity
       <div
         style={{
-          fontSize: 32,
-          background: 'linear-gradient(to bottom right, #7155FF, #3B82F6)',
+          background: '#0F172A',
           width: '100%',
           height: '100%',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'white',
-          borderRadius: '10px',
-          fontWeight: 900,
-          fontStyle: 'italic',
-          fontFamily: 'sans-serif',
-          boxShadow: 'inset 0 0 10px rgba(0,0,0,0.2)',
+          borderRadius: '12px',
+          position: 'relative',
         }}
       >
-        N
+        {/* Simplified SVG version of the Logo for Favicon */}
+        <svg
+          width="36"
+          height="36"
+          viewBox="0 0 100 100"
+          style={{ display: 'flex' }}
+        >
+          <path
+            d="M30 30V70L55 30V70"
+            stroke="white"
+            strokeWidth="14"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M80 40C75 32 65 28 58 28C45 28 35 40 35 50C35 60 45 72 58 72C65 72 75 68 80 60"
+            stroke="#7155FF"
+            strokeWidth="14"
+            strokeLinecap="round"
+          />
+        </svg>
       </div>
     ),
     {

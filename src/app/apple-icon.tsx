@@ -17,21 +17,34 @@ export default function Icon() {
     (
       <div
         style={{
-          fontSize: 120,
-          background: 'linear-gradient(to bottom right, #7155FF, #3B82F6)',
+          background: 'linear-gradient(to bottom right, #0F172A, #1E293B)',
           width: '100%',
           height: '100%',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'white',
           borderRadius: '40px',
-          fontWeight: 900,
-          fontStyle: 'italic',
-          fontFamily: 'sans-serif',
         }}
       >
-        N
+        <svg
+          width="120"
+          height="120"
+          viewBox="0 0 100 100"
+        >
+          <path
+            d="M30 30V70L55 30V70"
+            stroke="white"
+            strokeWidth="12"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M80 40C75 32 65 28 58 28C45 28 35 40 35 50C35 60 45 72 58 72C65 72 75 68 80 60"
+            stroke="#7155FF"
+            strokeWidth="12"
+            strokeLinecap="round"
+          />
+        </svg>
       </div>
     ),
     {
