@@ -65,11 +65,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/icon?v=2', sizes: '48x48', type: 'image/png' },
-      { url: '/favicon.ico?v=2', sizes: 'any' }
+      { url: '/icon?v=3', sizes: '48x48', type: 'image/png' },
+      { url: '/favicon.ico?v=3', sizes: 'any' }
     ],
     apple: [
-      { url: '/apple-icon?v=2', sizes: '180x180', type: 'image/png' }
+      { url: '/apple-icon?v=3', sizes: '180x180', type: 'image/png' }
     ],
   }
 };
@@ -84,8 +84,8 @@ export default function RootLayout({
     '@type': 'SoftwareApplication',
     'name': 'numcheckr',
     'url': APP_URL,
-    'logo': `${APP_URL}/icon`,
-    'image': `${APP_URL}/icon`,
+    'logo': `${APP_URL}/icon?v=3`,
+    'image': `${APP_URL}/icon?v=3`,
     'applicationCategory': 'BusinessApplication',
     'operatingSystem': 'Web',
     'description': 'AI-Powered Phone Number & Lead Verification Tool with 99.9% accuracy.',

@@ -30,18 +30,21 @@ export default function Icon() {
           width="120"
           height="120"
           viewBox="0 0 100 100"
+          style={{ display: 'flex' }}
         >
+          {/* Brand 'N' Path */}
           <path
             d="M30 30V70L55 30V70"
             stroke="white"
-            strokeWidth="12"
+            strokeWidth="14"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+          {/* Brand 'C' Path */}
           <path
             d="M80 40C75 32 65 28 58 28C45 28 35 40 35 50C35 60 45 72 58 72C65 72 75 68 80 60"
             stroke="#7155FF"
-            strokeWidth="12"
+            strokeWidth="14"
             strokeLinecap="round"
           />
         </svg>
