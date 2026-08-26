@@ -37,7 +37,7 @@ export default function PrivacyPage() {
               <FileText className="h-6 w-6 text-primary" />
               <h2 className="text-xl font-black italic uppercase">2. How We Use Data</h2>
             </div>
-            <p className="text-sm text-muted-foreground leading-relaxed">
+            <div className="text-sm text-muted-foreground leading-relaxed">
               Your data is used to:
               <ul className="list-disc ml-6 mt-4 space-y-2 opacity-80">
                 <li>Provide real-time validation results.</li>
@@ -45,7 +45,7 @@ export default function PrivacyPage() {
                 <li>Ensure system security and prevent abuse.</li>
                 <li>Improve our AI models (anonymized data only).</li>
               </ul>
-            </p>
+            </div>
           </section>
 
           <section className="space-y-4 p-8 bg-card rounded-3xl border border-white/5">
