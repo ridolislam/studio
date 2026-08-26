@@ -1,3 +1,4 @@
+
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { CircleCheck, Shield, Globe, ArrowRight } from "lucide-react";
@@ -96,8 +97,38 @@ export default function LandingPage() {
       </main>
       
       {/* Footer */}
-      <footer className="py-8 border-t border-white/5 text-center text-muted-foreground text-sm">
-        <p>© {new Date().getFullYear()} numcheckr. All rights reserved.</p>
+      <footer className="py-12 border-t border-white/5 bg-black/20">
+        <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-10">
+          <div className="space-y-4 text-center md:text-left">
+            <div className="flex items-center justify-center md:justify-start gap-2">
+              <Logo size={32} />
+              <span className="text-xl font-black italic tracking-tighter">numcheckr</span>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed max-w-xs mx-auto md:mx-0">
+              The ultimate AI-powered tool for business lead verification and phone number validation.
+            </p>
+          </div>
+          
+          <div className="flex flex-col items-center md:items-start gap-4">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Resources</h4>
+            <div className="flex flex-col gap-2 text-center md:text-left">
+              <Link href="/about" className="text-sm font-bold text-muted-foreground hover:text-white transition-colors">About Us</Link>
+              <Link href="/pricing" className="text-sm font-bold text-muted-foreground hover:text-white transition-colors">Pricing</Link>
+              <Link href="/privacy" className="text-sm font-bold text-muted-foreground hover:text-white transition-colors">Privacy Policy</Link>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center md:items-start gap-4">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Contact</h4>
+            <div className="flex flex-col gap-2 text-center md:text-left">
+              <a href="https://wa.me/qr/X3XUFT7RDTI2I1" target="_blank" className="text-sm font-bold text-muted-foreground hover:text-white transition-colors">WhatsApp Support</a>
+              <p className="text-sm font-bold text-muted-foreground">support@numcheckr.app</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-12 text-center border-t border-white/5 pt-8">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">© {new Date().getFullYear()} numcheckr. All rights reserved.</p>
+        </div>
       </footer>
     </div>
   );

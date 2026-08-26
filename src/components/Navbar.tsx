@@ -14,6 +14,7 @@ export default function Navbar() {
 
   const navLinks = [
     { name: "Pricing", href: "/pricing" },
+    { name: "About", href: "/about" },
     { name: "Contact", href: whatsappLink, isExternal: true },
   ];
 

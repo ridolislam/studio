@@ -1,3 +1,4 @@
+
 import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -6,6 +7,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const routes = [
     '',
     '/pricing',
+    '/about',
+    '/privacy',
     '/login',
     '/signup',
   ];
