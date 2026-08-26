@@ -1,4 +1,3 @@
-
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
@@ -64,6 +63,10 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
+  icons: {
+    icon: '/icon',
+    apple: '/apple-icon',
+  }
 };
 
 export default function RootLayout({
@@ -75,6 +78,9 @@ export default function RootLayout({
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
     'name': 'numcheckr',
+    'url': APP_URL,
+    'logo': `${APP_URL}/icon`,
+    'image': `${APP_URL}/icon`,
     'applicationCategory': 'BusinessApplication',
     'operatingSystem': 'Web',
     'description': 'AI-Powered Phone Number & Lead Verification Tool with 99.9% accuracy.',

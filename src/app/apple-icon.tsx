@@ -1,26 +1,23 @@
 import { ImageResponse } from 'next/og';
 
 /**
- * @fileOverview Dynamic Favicon generator for numcheckr.
- * Generates a high-quality 48x48 PNG icon (Google recommended size).
+ * @fileOverview High-resolution Apple Touch Icon for numcheckr.
  */
 
 export const runtime = 'edge';
 
-// Image metadata - Google requires multiples of 48px
 export const size = {
-  width: 48,
-  height: 48,
+  width: 180,
+  height: 180,
 };
 export const contentType = 'image/png';
 
 export default function Icon() {
   return new ImageResponse(
     (
-      // Favicon JSX element matching brand identity
       <div
         style={{
-          fontSize: 32,
+          fontSize: 120,
           background: 'linear-gradient(to bottom right, #7155FF, #3B82F6)',
           width: '100%',
           height: '100%',
@@ -28,11 +25,10 @@ export default function Icon() {
           alignItems: 'center',
           justifyContent: 'center',
           color: 'white',
-          borderRadius: '10px',
+          borderRadius: '40px',
           fontWeight: 900,
           fontStyle: 'italic',
           fontFamily: 'sans-serif',
-          boxShadow: 'inset 0 0 10px rgba(0,0,0,0.2)',
         }}
       >
         N
