@@ -28,8 +28,7 @@ export const metadata: Metadata = {
     canonical: '/',
   },
   verification: {
-    // এখানে আপনার Google Search Console থেকে পাওয়া ভেরিফিকেশন কোডটি বসান
-    google: 'ADD_YOUR_VERIFICATION_CODE_HERE',
+    google: 'kX1FyYdFJ7wFp7fUGQKmm2B8ZVaaHOI5zMgatd9a860',
   },
   openGraph: {
     title: 'numcheckr - AI-Powered Phone Number & Lead Verification Tool',
