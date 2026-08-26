@@ -28,6 +28,7 @@ export const metadata: Metadata = {
     canonical: '/',
   },
   verification: {
+    // এখানে আপনার Google Search Console থেকে পাওয়া ভেরিফিকেশন কোডটি বসান
     google: 'ADD_YOUR_VERIFICATION_CODE_HERE',
   },
   openGraph: {
