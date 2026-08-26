@@ -1,4 +1,3 @@
-
 import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -11,12 +10,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     '/privacy',
     '/login',
     '/signup',
+    '/history',
   ];
 
   return routes.map((route) => ({
     url: `${baseUrl}${route}`,
     lastModified: new Date(),
-    changeFrequency: 'weekly' as const,
+    changeFrequency: 'daily' as const,
     priority: route === '' ? 1 : 0.8,
   }));
 }
