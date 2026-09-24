@@ -14,7 +14,8 @@ import {
   Code2,
   Search,
   FileSpreadsheet,
-  CircleAlert
+  AlertTriangle,
+  CreditCard
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,10 +35,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from '@/components/ui/dialog';
+import { 
   syncUserProfile, 
   getUserHistory,
   stopValidation
 } from '@/app/actions/backend';
+import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 
@@ -65,8 +75,10 @@ export default function LeadPulseDashboard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const [counts, setCounts] = useState({ mobile: 0, landline: 0, invalid: 0 });
+  const [showCreditModal, setShowCreditModal] = useState(false);
 
   const { toast } = useToast();
+  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -181,6 +193,11 @@ export default function LeadPulseDashboard() {
   };
 
   const handleStart = async () => {
+    if (credits <= 0) {
+      setShowCreditModal(true);
+      return;
+    }
+
     const lines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (lines.length === 0) {
       toast({ variant: 'destructive', title: 'Input Empty', description: 'Please enter at least one number.' });
@@ -233,6 +250,13 @@ export default function LeadPulseDashboard() {
             }
 
             const data = JSON.parse(dataStr);
+
+            if (data && data.status === "NO_CREDITS") {
+              if (abortControllerRef.current) abortControllerRef.current.abort();
+              setIsProcessing(false);
+              setShowCreditModal(true);
+              break;
+            }
             
             if (Array.isArray(data)) {
               const newResults: ValidationResult[] = data.map((item: any) => ({
@@ -271,7 +295,7 @@ export default function LeadPulseDashboard() {
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        toast({ title: "Stopped", description: "Validation process halted by user." });
+        // Handled or explicitly canceled
       } else {
         toast({ variant: 'destructive', title: 'Network Error', description: "Streaming failed or connection lost." });
       }
@@ -280,7 +304,7 @@ export default function LeadPulseDashboard() {
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
-      }, 1000);
+      }, 500);
     }
   };
 
@@ -300,7 +324,7 @@ export default function LeadPulseDashboard() {
     
     setIsProcessing(false);
     toast({ variant: "destructive", title: "Stop Signal Sent", description: "Server loop termination requested." });
-    setTimeout(fetchAndSyncProfile, 1000);
+    setTimeout(fetchAndSyncProfile, 500);
   };
 
   const downloadExcel = (data: ValidationResult[], fileName: string) => {
@@ -339,6 +363,8 @@ export default function LeadPulseDashboard() {
     downloadExcel(filtered, fileName);
   };
 
+  const displayCredits = Math.max(0, credits);
+
   if (!isMounted) return null;
 
   return (
@@ -357,7 +383,7 @@ export default function LeadPulseDashboard() {
           <div className="flex items-center gap-4 bg-primary/5 border border-primary/20 px-6 py-3 rounded-2xl">
             <div className="flex flex-col items-end">
               <span className="text-[10px] font-black uppercase text-primary/70">Credits Balance</span>
-              <span className="text-2xl font-black italic leading-none">{credits}</span>
+              <span className="text-2xl font-black italic leading-none">{displayCredits}</span>
             </div>
             <div className="h-8 w-px bg-primary/20" />
             <Button variant="ghost" size="icon" onClick={fetchAndSyncProfile} disabled={isSyncing} className="h-10 w-10 rounded-xl hover:bg-primary/10">
@@ -367,7 +393,7 @@ export default function LeadPulseDashboard() {
         </div>
 
         <TabsContent value="tool" className="space-y-8">
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 grid-cols-1 xl:grid-cols-4 gap-6">
             <div className="xl:col-span-1 space-y-6">
               <Card className="border-white/10 bg-card shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-primary"></div>
@@ -581,6 +607,31 @@ export default function LeadPulseDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={showCreditModal} onOpenChange={setShowCreditModal}>
+        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md">
+          <DialogHeader className="flex flex-col items-center text-center space-y-3">
+            <div className="h-14 w-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">ক্রেডিট শেষ হয়ে গেছে</DialogTitle>
+            <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
+              আপনার ক্রেডিট শেষ হয়ে গেছে। দয়া করে প্রসেসটি চালিয়ে যেতে এবং লিড ভ্যালিডেশন সচল রাখতে ক্রেডিট কিনুন।
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="pt-4">
+            <Button 
+              onClick={() => {
+                setShowCreditModal(false);
+                router.push('/credits');
+              }}
+              className="w-full h-14 bg-primary text-md font-black italic uppercase rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+            >
+              <CreditCard className="h-5 w-5" /> Buy Credits
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

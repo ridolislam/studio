@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -91,6 +90,8 @@ export default function DashboardPage() {
     window.location.href = "/login";
   };
 
+  const displayCredits = user ? Math.max(0, user.credits ?? 0) : "...";
+
   if (!isMounted || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -122,7 +123,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] font-black uppercase text-muted-foreground leading-none mb-1">Available Credits</span>
-                <span className="text-xl font-black italic leading-none">{user.credits ?? "..."}</span>
+                <span className="text-xl font-black italic leading-none">{displayCredits}</span>
               </div>
               <Button 
                 variant="ghost" 
