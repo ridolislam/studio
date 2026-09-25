@@ -217,85 +217,126 @@ export default function LeadPulseDashboard() {
 
     abortControllerRef.current = new AbortController();
 
+    // Divide input numbers into chunks/batches of max 10 elements
+    const chunks: string[][] = [];
+    for (let i = 0; i < lines.length; i += 10) {
+      chunks.push(lines.slice(i, i + 10));
+    }
+
+    let currentProcessedCount = 0;
+
     try {
-      const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, numbers: lines }),
-        signal: abortControllerRef.current.signal
-      });
+      for (let i = 0; i < chunks.length; i++) {
+        if (abortControllerRef.current?.signal.aborted) {
+          break;
+        }
 
-      if (!response.body) throw new Error("No response body");
+        const currentChunk = chunks[i];
+        
+        // Front-end early safety verification check of real-time balance
+        if (credits <= 0) {
+          setShowCreditModal(true);
+          break;
+        }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+        const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            email, 
+            numbers: currentChunk,
+            credits: 10
+          }),
+          signal: abortControllerRef.current.signal
+        });
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+        // Deduct 10 credits on the client side immediately upon successful request launch
+        setCredits(prev => {
+          const nextCredits = Math.max(0, prev - 10);
+          const userStr = localStorage.getItem('user');
+          if (userStr) {
+            try {
+              const u = JSON.parse(userStr);
+              u.credits = nextCredits;
+              localStorage.setItem('user', JSON.stringify(u));
+            } catch(e) {}
+          }
+          return nextCredits;
+        });
 
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
+        if (!response.body) throw new Error("No response body");
 
-        for (const part of parts) {
-          if (!part.startsWith('data: ')) continue;
-          const dataStr = part.replace('data: ', '').trim();
-          
-          try {
-            if (dataStr.includes('"status":"DONE"')) {
-              toast({ title: "Validation Complete", description: "All numbers processed." });
-              break;
-            }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let chunkStreamEnded = false;
 
-            const data = JSON.parse(dataStr);
+        while (!chunkStreamEnded) {
+          const { value, done } = await reader.read();
+          if (done) break;
 
-            if (data && data.status === "NO_CREDITS") {
-              if (abortControllerRef.current) abortControllerRef.current.abort();
-              setIsProcessing(false);
-              setShowCreditModal(true);
-              break;
-            }
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() || '';
+
+          for (const part of parts) {
+            if (!part.startsWith('data: ')) continue;
+            const dataStr = part.replace('data: ', '').trim();
             
-            if (Array.isArray(data)) {
-              const newResults: ValidationResult[] = data.map((item: any) => ({
-                id: Math.random().toString(36).substr(2, 9),
-                number: item.number,
-                type: item.line_type || (item.valid ? 'Valid' : 'Invalid'),
-                carrier: item.carrier || 'N/A',
-                location: item.location || item.country_name || 'N/A',
-                status: item.valid ? 'success' : 'invalid',
-                timestamp: new Date().toISOString()
-              }));
+            try {
+              if (dataStr.includes('"status":"DONE"')) {
+                chunkStreamEnded = true;
+                break;
+              }
 
-              setResults(prev => [...newResults, ...prev]);
-              setLiveJson(data[data.length - 1]);
+              const data = JSON.parse(dataStr);
+
+              if (data && data.status === "NO_CREDITS") {
+                if (abortControllerRef.current) abortControllerRef.current.abort();
+                chunkStreamEnded = true;
+                setShowCreditModal(true);
+                break;
+              }
               
-              setCounts(prev => {
-                const next = { ...prev };
-                newResults.forEach(r => {
-                  if (r.status === 'invalid') next.invalid++;
-                  else if (r.type.toLowerCase().includes('mobile')) next.mobile++;
-                  else next.landline++;
-                });
-                return next;
-              });
+              if (Array.isArray(data)) {
+                const newResults: ValidationResult[] = data.map((item: any) => ({
+                  id: Math.random().toString(36).substr(2, 9),
+                  number: item.number,
+                  type: item.line_type || (item.valid ? 'Valid' : 'Invalid'),
+                  carrier: item.carrier || 'N/A',
+                  location: item.location || item.country_name || 'N/A',
+                  status: item.valid ? 'success' : 'invalid',
+                  timestamp: new Date().toISOString()
+                }));
 
-              setResults(prevResults => {
-                const totalProcessed = prevResults.length;
-                setProgress(Math.min(100, Math.round((totalProcessed / lines.length) * 100)));
-                return prevResults;
-              });
+                setResults(prev => [...newResults, ...prev]);
+                setLiveJson(data[data.length - 1]);
+                
+                setCounts(prev => {
+                  const next = { ...prev };
+                  newResults.forEach(r => {
+                    if (r.status === 'invalid') next.invalid++;
+                    else if (r.type.toLowerCase().includes('mobile')) next.mobile++;
+                    else next.landline++;
+                  });
+                  return next;
+                });
+
+                currentProcessedCount += newResults.length;
+                setProgress(Math.min(100, Math.round((currentProcessedCount / lines.length) * 100)));
+              }
+            } catch (e) {
+              console.error("Parse error", e);
             }
-          } catch (e) {
-            console.error("Parse error", e);
           }
         }
       }
+      
+      toast({ title: "Validation Process Finished", description: "Completed requested sequence batches." });
+
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        // Handled or explicitly canceled
+        // Explicitly aborted by user action
       } else {
         toast({ variant: 'destructive', title: 'Network Error', description: "Streaming failed or connection lost." });
       }
@@ -304,7 +345,7 @@ export default function LeadPulseDashboard() {
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
-      }, 500);
+      }, 600);
     }
   };
 
@@ -393,7 +434,7 @@ export default function LeadPulseDashboard() {
         </div>
 
         <TabsContent value="tool" className="space-y-8">
-          <div className="grid grid-cols-1 grid-cols-1 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
             <div className="xl:col-span-1 space-y-6">
               <Card className="border-white/10 bg-card shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-1 bg-primary"></div>
