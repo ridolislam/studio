@@ -193,7 +193,7 @@ export default function LeadPulseDashboard() {
   };
 
   const handleStart = async () => {
-    if (credits <= 0) {
+    if (credits < 10) {
       setShowCreditModal(true);
       return;
     }
@@ -231,13 +231,13 @@ export default function LeadPulseDashboard() {
           break;
         }
 
-        const currentChunk = chunks[i];
-        
-        // Front-end early safety verification check of real-time balance
-        if (credits <= 0) {
+        // VERY IMPORTANT: Check if the user has at least 10 credits left before executing this batch request
+        if (credits < 10) {
           setShowCreditModal(true);
           break;
         }
+
+        const currentChunk = chunks[i];
 
         const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
           method: 'POST',
@@ -605,7 +605,7 @@ export default function LeadPulseDashboard() {
                   placeholder="Search logs..." 
                   className="pl-12 h-12 bg-black/20 border-white/10 rounded-xl font-bold italic" 
                   value={historySearch} 
-                  onChange={e => setHistorySearch(e.target.value)} 
+                  onChange={e => setHistorySearch(e.g.target.value)} 
                 />
               </div>
             </CardHeader>
