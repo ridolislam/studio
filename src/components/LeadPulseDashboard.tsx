@@ -217,7 +217,6 @@ export default function LeadPulseDashboard() {
 
     abortControllerRef.current = new AbortController();
 
-    // Divide input numbers into chunks/batches of max 10 elements
     const chunks: string[][] = [];
     for (let i = 0; i < lines.length; i += 10) {
       chunks.push(lines.slice(i, i + 10));
@@ -231,7 +230,6 @@ export default function LeadPulseDashboard() {
           break;
         }
 
-        // VERY IMPORTANT: Check if the user has at least 10 credits left before executing this batch request
         if (credits < 10) {
           setShowCreditModal(true);
           break;
@@ -250,7 +248,6 @@ export default function LeadPulseDashboard() {
           signal: abortControllerRef.current.signal
         });
 
-        // Deduct 10 credits on the client side immediately upon successful request launch
         setCredits(prev => {
           const nextCredits = Math.max(0, prev - 10);
           const userStr = localStorage.getItem('user');
@@ -336,7 +333,7 @@ export default function LeadPulseDashboard() {
 
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        // Explicitly aborted by user action
+        // Aborted
       } else {
         toast({ variant: 'destructive', title: 'Network Error', description: "Streaming failed or connection lost." });
       }
@@ -605,7 +602,7 @@ export default function LeadPulseDashboard() {
                   placeholder="Search logs..." 
                   className="pl-12 h-12 bg-black/20 border-white/10 rounded-xl font-bold italic" 
                   value={historySearch} 
-                  onChange={e => setHistorySearch(e.g.target.value)} 
+                  onChange={e => setHistorySearch(e.target.value)} 
                 />
               </div>
             </CardHeader>
@@ -655,9 +652,9 @@ export default function LeadPulseDashboard() {
             <div className="h-14 w-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center">
               <AlertTriangle className="h-8 w-8" />
             </div>
-            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">ক্রেডিট শেষ হয়ে গেছে</DialogTitle>
+            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">OUT OF CREDITS</DialogTitle>
             <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
-              আপনার ক্রেডিট শেষ হয়ে গেছে। দয়া করে প্রসেসটি চালিয়ে যেতে এবং লিড ভ্যালিডেশন সচল রাখতে ক্রেডিট কিনুন।
+              Your account balance is insufficient to continue. Please top up your credits to resume validation.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="pt-4">
