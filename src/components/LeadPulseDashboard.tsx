@@ -193,14 +193,15 @@ export default function LeadPulseDashboard() {
   };
 
   const handleStart = async () => {
-    if (credits < 10) {
-      setShowCreditModal(true);
-      return;
-    }
-
     const lines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (lines.length === 0) {
       toast({ variant: 'destructive', title: 'Input Empty', description: 'Please enter at least one number.' });
+      return;
+    }
+
+    // Step 0: Check initial credits
+    if (credits < 1) {
+      setShowCreditModal(true);
       return;
     }
 
@@ -219,7 +220,7 @@ export default function LeadPulseDashboard() {
 
     try {
       // Step 1: Fetch Batch Info
-      let batchSize = 10;
+      let recommendedBatchSize = 10;
       try {
         const batchInfoRes = await fetch('https://numcheckr.onrender.com/api/user/batch-info', {
           method: 'GET',
@@ -227,7 +228,7 @@ export default function LeadPulseDashboard() {
         });
         if (batchInfoRes.ok) {
           const batchInfoData = await batchInfoRes.json();
-          batchSize = parseInt(batchInfoData.recommendedBatchSize) || 10;
+          recommendedBatchSize = parseInt(batchInfoData.recommendedBatchSize) || 10;
         }
       } catch (e) {
         console.error("Batch info fetch failed, using default.");
@@ -235,58 +236,61 @@ export default function LeadPulseDashboard() {
 
       // Step 2: Array Chunking
       const chunks: string[][] = [];
-      for (let i = 0; i < lines.length; i += batchSize) {
-        chunks.push(lines.slice(i, i + batchSize));
+      for (let i = 0; i < lines.length; i += recommendedBatchSize) {
+        chunks.push(lines.slice(i, i + recommendedBatchSize));
       }
 
       let currentProcessedCount = 0;
 
-      // Step 3: Stream Batch Requests sequentially
+      // Step 3: Iterate through each chunk sequentially
       for (let i = 0; i < chunks.length; i++) {
         if (abortControllerRef.current?.signal.aborted) break;
 
-        // Re-check credits before starting a new batch
-        if (credits < batchSize) {
+        const currentChunk = chunks[i];
+        const cost = currentChunk.length; // 1 credit per number
+
+        // Re-check credits before starting the chunk
+        if (credits < cost) {
           setShowCreditModal(true);
           break;
         }
 
-        const currentChunk = chunks[i];
-
+        // Send a POST request with SSE streaming
         const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             email, 
             numbers: currentChunk,
-            credits: batchSize
+            credits: cost 
           }),
           signal: abortControllerRef.current.signal
         });
 
-        // Instant UI credit deduction
+        if (!response.body) throw new Error("No response body");
+
+        // UI local credit deduction logic (instant feedback)
         setCredits(prev => {
-          const nextCredits = Math.max(0, prev - batchSize);
+          const nextCredits = Math.max(0, prev - cost);
           const uStr = localStorage.getItem('user');
           if (uStr) {
             try {
               const u = JSON.parse(uStr);
               u.credits = nextCredits;
               localStorage.setItem('user', JSON.stringify(u));
+              window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: nextCredits } }));
             } catch(e) {}
           }
           return nextCredits;
         });
 
-        if (!response.body) throw new Error("No response body");
-
         // Step 4: UI State Management & SSE Handling
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let chunkStreamEnded = false;
+        let chunkDone = false;
 
-        while (!chunkStreamEnded) {
+        while (!chunkDone) {
           const { value, done } = await reader.read();
           if (done) break;
 
@@ -301,24 +305,25 @@ export default function LeadPulseDashboard() {
             try {
               const data = JSON.parse(dataStr);
 
-              // Handle specific status updates from server
+              // Handle status updates
               if (data.status === "DONE") {
-                chunkStreamEnded = true;
+                chunkDone = true;
                 break;
               }
 
               if (data.status === "NO_CREDITS") {
                 if (abortControllerRef.current) abortControllerRef.current.abort();
-                chunkStreamEnded = true;
+                chunkDone = true;
                 setShowCreditModal(true);
                 break;
               }
 
               if (data.status === "PAUSED") {
-                console.log("Validation paused by server.");
+                console.log("Processing paused by worker cluster.");
                 continue;
               }
               
+              // Handle result arrays
               if (Array.isArray(data)) {
                 const newResults: ValidationResult[] = data.map((item: any) => ({
                   id: Math.random().toString(36).substr(2, 9),
@@ -347,24 +352,25 @@ export default function LeadPulseDashboard() {
                 setProgress(Math.min(100, Math.round((currentProcessedCount / lines.length) * 100)));
               }
             } catch (e) {
-              // Partial JSON or parse errors ignored
+              // Parse error handling
             }
           }
         }
       }
       
-      toast({ title: "Process Finished", description: "Batch validation complete." });
+      toast({ title: "Validation Finished", description: "Successfully processed lead list." });
 
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        toast({ variant: 'destructive', title: 'Error', description: err.message || "Connection failed." });
+        toast({ variant: 'destructive', title: 'Error', description: err.message || "Failed to communicate with worker cluster." });
       }
     } finally {
       setIsProcessing(false);
+      // Final sync to ensure credit display is 100% accurate
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
-      }, 500);
+      }, 1000);
     }
   };
 
@@ -383,13 +389,13 @@ export default function LeadPulseDashboard() {
     }
     
     setIsProcessing(false);
-    toast({ variant: "destructive", title: "Stopped", description: "Sequence terminated." });
+    toast({ variant: "destructive", title: "Stopped", description: "Operation halted by user." });
     setTimeout(fetchAndSyncProfile, 500);
   };
 
   const downloadExcel = (data: ValidationResult[], fileName: string) => {
     if (data.length === 0) {
-      toast({ variant: "destructive", title: "No Data", description: "No records to export." });
+      toast({ variant: "destructive", title: "No Data", description: "No results to export." });
       return;
     }
     const ws = XLSX.utils.json_to_sheet(data.map(item => ({
@@ -411,13 +417,13 @@ export default function LeadPulseDashboard() {
 
     if (type === 'mobile') {
       filtered = results.filter(r => r.type.toLowerCase().includes('mobile') && r.status === 'success');
-      fileName = "numcheckr_Mobile_Results";
+      fileName = "numcheckr_Mobile_Leads";
     } else if (type === 'landline') {
       filtered = results.filter(r => !r.type.toLowerCase().includes('mobile') && r.status === 'success');
-      fileName = "numcheckr_Landline_Results";
+      fileName = "numcheckr_Landline_Leads";
     } else {
       filtered = results.filter(r => r.status === 'invalid');
-      fileName = "numcheckr_Invalid_Results";
+      fileName = "numcheckr_Invalid_Leads";
     }
 
     downloadExcel(filtered, fileName);
