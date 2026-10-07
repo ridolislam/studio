@@ -78,7 +78,7 @@ export default function AdminPanel() {
       if (res && res.success) {
         const dashboardData = res.data || res;
         setData(dashboardData);
-        addLog(`[STATS] Sync complete. Users: ${dashboardData.totalUsers || 0}, Rapid: ${dashboardData.totalRapid || 0}, Numverify: ${dashboardData.totalNumverify || 0}`);
+        addLog(`[STATS] Sync complete. Users: ${dashboardData.users?.length || dashboardData.totalUsers || 0}`);
       } else if (res?.error === 'WAKING_UP') {
         addLog(`[WARN] Backend is waking up. Retrying in 5s...`);
         setTimeout(() => fetchData(secret), 5000);
@@ -108,43 +108,52 @@ export default function AdminPanel() {
     }
   };
 
-  const handleUpdateCredits = async (userId: string, currentCredits: number) => {
-    if (!userId) {
-      toast({ variant: "destructive", title: "Update Error", description: "User ID missing." });
+  const handleUpdateCredits = async (user: any) => {
+    const targetUserId = user._id || user.uid || user.id;
+    const currentCredits = user.credits || 0;
+
+    addLog(`[CLICK] Edit clicked for ${user.email} (ID: ${targetUserId})`);
+
+    if (!targetUserId) {
+      addLog(`[ERROR] User ID is missing in data object! Check backend response.`);
+      toast({ variant: "destructive", title: "Update Error", description: "User ID missing in record." });
       return;
     }
 
-    const newCreditsStr = prompt("Enter new credit amount:", currentCredits.toString());
-    if (newCreditsStr === null) return;
+    const newCreditsStr = prompt(`Update credits for ${user.email}:`, currentCredits.toString());
+    if (newCreditsStr === null) {
+      addLog(`[CREDITS] Update cancelled by admin.`);
+      return;
+    }
     
     const newCredits = parseInt(newCreditsStr);
     if (isNaN(newCredits)) {
+      addLog(`[ERROR] Invalid numeric input for credits.`);
       toast({ variant: "destructive", title: "Invalid Input", description: "Please enter a valid number." });
       return;
     }
 
-    setIsUpdating(userId);
-    addLog(`[CREDITS] Updating user ${userId} to ${newCredits} credits...`);
+    setIsUpdating(targetUserId);
+    addLog(`[CREDITS] Dispatching update for ${targetUserId} to ${newCredits} credits...`);
     
     try {
       const res = await updateAdminUser({ 
         secret: ADMIN_SECRET, 
-        userId, 
+        userId: targetUserId, 
         credits: newCredits 
       });
 
       if (res && res.success) {
-        addLog(`[CREDITS] Successfully updated user ${userId}.`);
+        addLog(`[SUCCESS] User ${user.email} updated to ${newCredits}.`);
         toast({ title: "Success", description: "User credits updated successfully." });
-        // Refresh data to show changes
         await fetchData();
       } else {
-        const errorMsg = res?.message || "Failed to update credits";
-        addLog(`[ERROR] ${errorMsg}`);
+        const errorMsg = res?.message || "Server rejected update";
+        addLog(`[ERROR] ${errorMsg} ${res?.raw ? `(Raw: ${res.raw})` : ''}`);
         toast({ variant: "destructive", title: "Update Failed", description: errorMsg });
       }
     } catch (error) {
-      addLog(`[ERROR] Connection failure during update.`);
+      addLog(`[ERROR] Connection failure during POST request.`);
       toast({ variant: "destructive", title: "Error", description: "Could not connect to update endpoint." });
     } finally {
       setIsUpdating(null);
@@ -272,7 +281,7 @@ export default function AdminPanel() {
           <Card className="border-primary/20 bg-primary/5 p-6 rounded-3xl relative overflow-hidden">
              <div className="absolute -right-4 -top-4 opacity-5"><Users size={100} /></div>
              <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Total Users</p>
-             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (data?.totalUsers || 0)}</h3>
+             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (userList.length || 0)}</h3>
           </Card>
           <Card className="border-accent/20 bg-accent/5 p-6 rounded-3xl relative overflow-hidden">
              <div className="absolute -right-4 -top-4 opacity-5"><Zap size={100} /></div>
@@ -355,14 +364,14 @@ export default function AdminPanel() {
                       ) : filteredUsers.length === 0 ? (
                         <TableRow><TableCell colSpan={3} className="text-center py-10 opacity-20 font-bold">NO USERS FOUND</TableCell></TableRow>
                       ) : filteredUsers.map((user: any) => {
-                        const targetUserId = user._id || user.uid;
+                        const targetUserId = user._id || user.uid || user.id;
                         return (
                           <TableRow key={targetUserId} className="border-white/5 hover:bg-white/5">
                             <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
                             <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
                             <TableCell className="text-right px-8">
                               <Button 
-                                onClick={() => handleUpdateCredits(targetUserId, user.credits)} 
+                                onClick={() => handleUpdateCredits(user)} 
                                 className="bg-primary rounded-xl font-black italic h-10 px-6"
                                 disabled={isUpdating === targetUserId}
                               >

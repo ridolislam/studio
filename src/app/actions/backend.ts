@@ -19,7 +19,7 @@ async function safeJson(response: Response) {
     if (text.toLowerCase().includes('waking up') || text.toLowerCase().includes('starting')) {
       return { success: false, message: 'Server is waking up. Please wait 45-60 seconds.', error: 'WAKING_UP' };
     }
-    return { success: false, message: `Server returned non-JSON response: ${response.status}` };
+    return { success: false, message: `Server returned non-JSON response: ${response.status}`, raw: text.substring(0, 100) };
   } catch (err) {
     return { success: false, message: "Failed to parse server response. The server might be offline." };
   }
