@@ -45,7 +45,8 @@ import {
 import { 
   syncUserProfile, 
   getUserHistory,
-  stopValidation
+  stopValidation,
+  getBatchInfo
 } from '@/app/actions/backend';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
@@ -218,20 +219,9 @@ export default function LeadPulseDashboard() {
     abortControllerRef.current = new AbortController();
 
     try {
-      // Step 1: Fetch Batch Info
-      let recommendedBatchSize = 10;
-      try {
-        const batchInfoRes = await fetch('https://numcheckr.onrender.com/api/user/batch-info', {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        if (batchInfoRes.ok) {
-          const batchInfoData = await batchInfoRes.json();
-          recommendedBatchSize = parseInt(batchInfoData.recommendedBatchSize) || 10;
-        }
-      } catch (e) {
-        console.error("Batch info fetch failed, using default 10.");
-      }
+      // Step 1: Fetch Batch Info via Server Action proxy
+      const batchRes = await getBatchInfo();
+      const recommendedBatchSize = batchRes.recommendedBatchSize || 10;
 
       // Step 2: Array Chunking
       const chunks: string[][] = [];
@@ -241,20 +231,19 @@ export default function LeadPulseDashboard() {
 
       let currentProcessedCount = 0;
 
-      // Step 3: Stream Batch Requests (Sequential iteration through each chunk)
+      // Step 3: Stream Batch Requests
       for (let i = 0; i < chunks.length; i++) {
         if (abortControllerRef.current?.signal.aborted) break;
 
         const currentChunk = chunks[i];
         const cost = currentChunk.length;
 
-        // Re-check credits before starting the chunk
         if (credits < cost) {
           setShowCreditModal(true);
           break;
         }
 
-        // Send POST request with SSE streaming
+        // Direct call for SSE - Ensure CORS is enabled on Render
         const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -266,9 +255,9 @@ export default function LeadPulseDashboard() {
           signal: abortControllerRef.current.signal
         });
 
-        if (!response.body) throw new Error("No response body from worker cluster.");
+        if (!response.body) throw new Error("Connection failed: No response body.");
 
-        // UI local credit deduction logic (instant feedback)
+        // UI local credit deduction
         setCredits(prev => {
           const nextCredits = Math.max(0, prev - cost);
           const uStr = localStorage.getItem('user');
@@ -283,7 +272,6 @@ export default function LeadPulseDashboard() {
           return nextCredits;
         });
 
-        // Step 4: UI State Management & SSE Handling
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -304,7 +292,6 @@ export default function LeadPulseDashboard() {
             try {
               const data = JSON.parse(dataStr);
 
-              // Handle status updates
               if (data.status === "DONE") {
                 chunkDone = true;
                 break;
@@ -317,12 +304,6 @@ export default function LeadPulseDashboard() {
                 break;
               }
 
-              if (data.status === "PAUSED") {
-                console.log("Worker cluster indicates processing is paused.");
-                continue;
-              }
-              
-              // Handle results
               if (Array.isArray(data)) {
                 const newResults: ValidationResult[] = data.map((item: any) => ({
                   id: Math.random().toString(36).substr(2, 9),
@@ -350,22 +331,16 @@ export default function LeadPulseDashboard() {
                 currentProcessedCount += newResults.length;
                 setProgress(Math.min(100, Math.round((currentProcessedCount / lines.length) * 100)));
               }
-            } catch (e) {
-              // Ignore partial or malformed JSON chunks
-            }
+            } catch (e) {}
           }
         }
       }
-      
-      toast({ title: "Validation Process Ended", description: "Completed all batches from the lead list." });
-
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        toast({ variant: 'destructive', title: 'System Error', description: err.message || "Failed to communicate with worker cluster." });
+        toast({ variant: 'destructive', title: 'Connection Failed', description: "Could not reach the worker cluster. Please try again in a moment." });
       }
     } finally {
       setIsProcessing(false);
-      // Final sync for accuracy
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
@@ -388,15 +363,12 @@ export default function LeadPulseDashboard() {
     }
     
     setIsProcessing(false);
-    toast({ variant: "destructive", title: "Process Halted", description: "You have manually stopped the validation." });
+    toast({ variant: "destructive", title: "Stopped", description: "Validation halted." });
     setTimeout(fetchAndSyncProfile, 500);
   };
 
   const downloadExcel = (data: ValidationResult[], fileName: string) => {
-    if (data.length === 0) {
-      toast({ variant: "destructive", title: "No Data", description: "No results to export." });
-      return;
-    }
+    if (data.length === 0) return;
     const ws = XLSX.utils.json_to_sheet(data.map(item => ({
       Number: item.number,
       Type: item.type,
@@ -413,18 +385,16 @@ export default function LeadPulseDashboard() {
   const downloadFilteredResults = (type: 'mobile' | 'landline' | 'invalid') => {
     let filtered: ValidationResult[] = [];
     let fileName = "";
-
     if (type === 'mobile') {
       filtered = results.filter(r => r.type.toLowerCase().includes('mobile') && r.status === 'success');
-      fileName = "numcheckr_Mobile_Leads";
+      fileName = "Mobile_Leads";
     } else if (type === 'landline') {
       filtered = results.filter(r => !r.type.toLowerCase().includes('mobile') && r.status === 'success');
-      fileName = "numcheckr_Landline_Leads";
+      fileName = "Landline_Leads";
     } else {
       filtered = results.filter(r => r.status === 'invalid');
-      fileName = "numcheckr_Invalid_Leads";
+      fileName = "Invalid_Leads";
     }
-
     downloadExcel(filtered, fileName);
   };
 
@@ -481,11 +451,11 @@ export default function LeadPulseDashboard() {
                     disabled={isProcessing} 
                   />
                   <div className="grid grid-cols-2 gap-3">
-                    <Button onClick={handleStart} disabled={isProcessing} className="h-14 bg-primary font-black italic rounded-xl shadow-lg shadow-primary/20">
+                    <Button onClick={handleStart} disabled={isProcessing} className="h-14 bg-primary font-black italic rounded-xl">
                       {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 mr-2" />} 
                       {isProcessing ? "CHECKING..." : "START"}
                     </Button>
-                    <Button onClick={handleStop} disabled={!isProcessing} variant="destructive" className="h-14 font-black italic rounded-xl shadow-lg shadow-destructive/20">
+                    <Button onClick={handleStop} disabled={!isProcessing} variant="destructive" className="h-14 font-black italic rounded-xl">
                       <Square className="h-4 w-4 mr-2" /> STOP
                     </Button>
                   </div>
@@ -514,34 +484,16 @@ export default function LeadPulseDashboard() {
 
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-3 gap-4">
-                <Card 
-                  onClick={() => downloadFilteredResults('mobile')}
-                  className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-green-500/10 transition-all active:scale-95 group"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-green-500">Mobile</p>
-                    <Download className="h-3 w-3 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                <Card onClick={() => downloadFilteredResults('mobile')} className="border-green-500/20 bg-green-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-green-500/10 transition-all">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-green-500">Mobile</p>
                   <h3 className="text-3xl font-black italic">{counts.mobile}</h3>
                 </Card>
-                <Card 
-                  onClick={() => downloadFilteredResults('landline')}
-                  className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-blue-500/10 transition-all active:scale-95 group"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Landline</p>
-                    <Download className="h-3 w-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                <Card onClick={() => downloadFilteredResults('landline')} className="border-blue-500/20 bg-blue-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-blue-500/10 transition-all">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-500">Landline</p>
                   <h3 className="text-3xl font-black italic">{counts.landline}</h3>
                 </Card>
-                <Card 
-                  onClick={() => downloadFilteredResults('invalid')}
-                  className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-red-500/10 transition-all active:scale-95 group"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Invalid</p>
-                    <Download className="h-3 w-3 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                <Card onClick={() => downloadFilteredResults('invalid')} className="border-red-500/20 bg-red-500/5 p-4 rounded-2xl border-2 cursor-pointer hover:bg-red-500/10 transition-all">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-red-500">Invalid</p>
                   <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
                 </Card>
               </div>
@@ -554,18 +506,13 @@ export default function LeadPulseDashboard() {
                 <Progress value={progress} className="h-3 bg-primary/10" />
               </div>
 
-              <Card className="bg-card/60 backdrop-blur-xl border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+              <Card className="bg-card/60 backdrop-blur-xl border-white/5 rounded-3xl overflow-hidden">
                 <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="bg-primary/10 text-primary border-none text-[9px] font-black">LIVE</Badge>
-                    <span className="text-xs font-black uppercase tracking-widest opacity-70">Distributed Worker Output</span>
+                    <span className="text-xs font-black uppercase tracking-widest opacity-70">Worker Output</span>
                   </div>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="h-8 rounded-lg text-[10px] font-black uppercase border-primary/30 text-primary"
-                    onClick={() => downloadExcel(results, 'numcheckr_Full_Results')}
-                  >
+                  <Button size="sm" variant="outline" className="h-8 rounded-lg text-[10px] font-black uppercase border-primary/30 text-primary" onClick={() => downloadExcel(results, 'Full_Results')}>
                     <FileSpreadsheet className="h-3 w-3 mr-2" /> Export XLSX
                   </Button>
                 </div>
@@ -583,14 +530,11 @@ export default function LeadPulseDashboard() {
                     <TableBody>
                       {results.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="h-64 text-center opacity-20">
-                            <Code2 className="h-12 w-12 mx-auto mb-4" />
-                            <p className="font-black italic uppercase">Results will stream here in real-time</p>
-                          </TableCell>
+                          <TableCell colSpan={5} className="h-64 text-center opacity-20 font-black italic uppercase">Results will stream here</TableCell>
                         </TableRow>
                       ) : (
                         results.map(res => (
-                          <TableRow key={res.id} className="border-white/5 h-16 hover:bg-white/5 transition-all animate-in slide-in-from-left-2">
+                          <TableRow key={res.id} className="border-white/5 h-16 hover:bg-white/5 transition-all">
                             <TableCell className="px-8 font-code font-black text-primary">{res.number}</TableCell>
                             <TableCell>
                               <Badge className={cn(
@@ -621,7 +565,6 @@ export default function LeadPulseDashboard() {
             <CardHeader className="p-8 border-b border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 bg-muted/5">
               <div>
                 <CardTitle className="text-2xl font-black italic uppercase tracking-tighter">Activity History</CardTitle>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Audit trail for all activity</p>
               </div>
               <div className="relative w-full md:w-[400px]">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -647,7 +590,7 @@ export default function LeadPulseDashboard() {
                   {isLoadingHistory ? (
                     <TableRow><TableCell colSpan={4} className="h-64 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
                   ) : history.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="h-64 text-center opacity-20"><HistoryIcon className="h-12 w-12 mx-auto mb-2" /><p className="font-black italic">No logs found</p></TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4} className="h-64 text-center opacity-20 font-black italic">No logs found</TableCell></TableRow>
                   ) : (
                     history.map((item, i) => (
                       <TableRow key={i} className="border-white/5 h-16 hover:bg-white/5 transition-colors">
@@ -680,18 +623,12 @@ export default function LeadPulseDashboard() {
               <AlertTriangle className="h-8 w-8" />
             </div>
             <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">OUT OF CREDITS</DialogTitle>
-            <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
-              Your account balance is insufficient to continue. Please top up your credits to resume validation.
+            <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide text-center">
+              Your account balance is insufficient. Please top up to continue.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="pt-4">
-            <Button 
-              onClick={() => {
-                setShowCreditModal(false);
-                router.push('/credits');
-              }}
-              className="w-full h-14 bg-primary text-md font-black italic uppercase rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
-            >
+            <Button onClick={() => { setShowCreditModal(false); router.push('/credits'); }} className="w-full h-14 bg-primary text-md font-black italic uppercase rounded-xl flex items-center justify-center gap-2">
               <CreditCard className="h-5 w-5" /> Buy Credits
             </Button>
           </DialogFooter>

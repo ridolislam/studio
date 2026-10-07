@@ -15,12 +15,13 @@ async function safeJson(response: Response) {
       return data;
     }
     const text = await response.text();
-    if (text.toLowerCase().includes('waking up')) {
-      return { success: false, message: 'Server is waking up. Please wait 30 seconds.', error: 'WAKING_UP' };
+    // Render often returns HTML when the server is starting or has an error
+    if (text.toLowerCase().includes('waking up') || text.toLowerCase().includes('starting')) {
+      return { success: false, message: 'Server is waking up. Please wait 45-60 seconds.', error: 'WAKING_UP' };
     }
-    return { success: false, message: text || `Server error: ${response.status}` };
+    return { success: false, message: `Server returned non-JSON response: ${response.status}` };
   } catch (err) {
-    return { success: false, message: "Failed to parse server response." };
+    return { success: false, message: "Failed to parse server response. The server might be offline." };
   }
 }
 
@@ -28,13 +29,30 @@ export async function loginUser(payload: { email: string; password?: string }) {
   try {
     const response = await fetch(`${API_BASE}/api/user/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
     return await safeJson(response);
   } catch (error) {
-    return { success: false, message: 'Connection failed to backend.' };
+    console.error("Login fetch error:", error);
+    return { success: false, message: 'Could not connect to the backend server. It might be waking up or offline.' };
+  }
+}
+
+export async function getBatchInfo() {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/batch-info`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, recommendedBatchSize: 10 };
   }
 }
 
@@ -147,36 +165,6 @@ export async function clearAdminKeys(payload: { secret: string }) {
     return { success: false, message: 'Wipe failed' };
   }
 }
-
-export async function getAdminStats(secret: string) {
-  try {
-    const response = await fetch(`${API_BASE}/api/admin/stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret }),
-      cache: 'no-store'
-    });
-    return await safeJson(response);
-  } catch (error) {
-    return { success: false, message: 'Failed to fetch stats' };
-  }
-}
-
-export async function getAdminUsers(secret: string) {
-  try {
-    const response = await fetch(`${API_BASE}/api/admin/users`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret }),
-      cache: 'no-store'
-    });
-    return await safeJson(response);
-  } catch (error) {
-    return { success: false, message: 'Failed to fetch users' };
-  }
-}
-
-// --- PAYMENT ACTIONS ---
 
 export async function createOxapayInvoice(payload: { email: string, credits: number, payCurrency: string, network: string }) {
   try {
