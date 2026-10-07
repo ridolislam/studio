@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -224,7 +225,7 @@ export default function LeadPulseDashboard() {
 
       if (recommendedBatchSize <= 0) {
         setIsProcessing(false);
-        toast({ variant: 'destructive', title: 'Resources Unavailable', description: 'No API Keys or system resources available at this time.' });
+        toast({ variant: 'destructive', title: 'Resources Unavailable', description: 'No API Keys or system resources available.' });
         return;
       }
 
@@ -260,88 +261,92 @@ export default function LeadPulseDashboard() {
 
         if (!response.body) throw new Error("Connection failed: No response body.");
 
+        // Optimistic credit deduction
         sessionCredits -= cost;
-        setCredits(prev => {
-          const nextCredits = Math.max(0, prev - cost);
-          
-          // Defer side effects (localStorage update and event dispatch) to avoid 
-          // updating DashboardPage while LeadPulseDashboard is rendering.
-          setTimeout(() => {
-            const uStr = localStorage.getItem('user');
-            if (uStr) {
-              try {
-                const u = JSON.parse(uStr);
-                u.credits = nextCredits;
-                localStorage.setItem('user', JSON.stringify(u));
-                window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: nextCredits } }));
-              } catch(e) {}
-            }
-          }, 0);
-          
-          return nextCredits;
-        });
+        const currentBatchCredits = sessionCredits;
+        setTimeout(() => {
+          const uStr = localStorage.getItem('user');
+          if (uStr) {
+            try {
+              const u = JSON.parse(uStr);
+              u.credits = Math.max(0, currentBatchCredits);
+              localStorage.setItem('user', JSON.stringify(u));
+              window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: u.credits } }));
+            } catch(e) {}
+          }
+        }, 0);
+        setCredits(Math.max(0, sessionCredits));
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         let chunkDone = false;
 
-        while (!chunkDone) {
-          const { value, done } = await reader.read();
-          if (done) break;
+        try {
+          while (!chunkDone) {
+            const { value, done } = await reader.read();
+            if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() || '';
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop() || '';
 
-          for (const part of parts) {
-            if (!part.startsWith('data: ')) continue;
-            const dataStr = part.replace('data: ', '').trim();
-            
-            try {
-              const data = JSON.parse(dataStr);
+            for (const part of parts) {
+              const cleanPart = part.trim();
+              if (!cleanPart.startsWith('data: ')) continue;
+              
+              const dataStr = cleanPart.replace('data: ', '').trim();
+              if (!dataStr) continue;
+              
+              try {
+                const data = JSON.parse(dataStr);
 
-              if (data.status === "DONE") {
-                chunkDone = true;
-                break;
-              }
+                if (data.status === "DONE") {
+                  chunkDone = true;
+                  await reader.cancel(); // Close connection immediately for faster batch transition
+                  break;
+                }
 
-              if (data.status === "NO_CREDITS") {
-                if (abortControllerRef.current) abortControllerRef.current.abort();
-                chunkDone = true;
-                setShowCreditModal(true);
-                break;
-              }
+                if (data.status === "NO_CREDITS") {
+                  if (abortControllerRef.current) abortControllerRef.current.abort();
+                  chunkDone = true;
+                  await reader.cancel();
+                  setShowCreditModal(true);
+                  break;
+                }
 
-              if (Array.isArray(data)) {
-                const newResults: ValidationResult[] = data.map((item: any) => ({
-                  id: Math.random().toString(36).substr(2, 9),
-                  number: item.number,
-                  type: item.line_type || (item.valid ? 'Valid' : 'Invalid'),
-                  carrier: item.carrier || 'N/A',
-                  location: item.location || item.country_name || 'N/A',
-                  status: item.valid ? 'success' : 'invalid',
-                  timestamp: new Date().toISOString()
-                }));
+                if (Array.isArray(data)) {
+                  const newResults: ValidationResult[] = data.map((item: any) => ({
+                    id: Math.random().toString(36).substring(2, 11),
+                    number: item.number,
+                    type: item.line_type || (item.valid ? 'Valid' : 'Invalid'),
+                    carrier: item.carrier || 'N/A',
+                    location: item.location || item.country_name || 'N/A',
+                    status: item.valid ? 'success' : 'invalid',
+                    timestamp: new Date().toISOString()
+                  }));
 
-                setResults(prev => [...newResults, ...prev]);
-                setLiveJson(data[data.length - 1]);
-                
-                setCounts(prev => {
-                  const next = { ...prev };
-                  newResults.forEach(r => {
-                    if (r.status === 'invalid') next.invalid++;
-                    else if (r.type.toLowerCase().includes('mobile')) next.mobile++;
-                    else next.landline++;
+                  setResults(prev => [...newResults, ...prev]);
+                  setLiveJson(data[data.length - 1]);
+                  
+                  setCounts(prev => {
+                    const next = { ...prev };
+                    newResults.forEach(r => {
+                      if (r.status === 'invalid') next.invalid++;
+                      else if (r.type.toLowerCase().includes('mobile')) next.mobile++;
+                      else next.landline++;
+                    });
+                    return next;
                   });
-                  return next;
-                });
 
-                currentProcessedCount += newResults.length;
-                setProgress(Math.min(100, Math.round((currentProcessedCount / lines.length) * 100)));
-              }
-            } catch (e) {}
+                  currentProcessedCount += newResults.length;
+                  setProgress(Math.min(100, Math.round((currentProcessedCount / lines.length) * 100)));
+                }
+              } catch (e) {}
+            }
           }
+        } finally {
+          reader.releaseLock();
         }
       }
     } catch (err: any) {
@@ -350,10 +355,9 @@ export default function LeadPulseDashboard() {
       }
     } finally {
       setIsProcessing(false);
-      setTimeout(() => {
-        fetchAndSyncProfile();
-        fetchHistory();
-      }, 1000);
+      // Immediate sync without delay
+      fetchAndSyncProfile();
+      fetchHistory();
     }
   };
 
@@ -373,7 +377,7 @@ export default function LeadPulseDashboard() {
     
     setIsProcessing(false);
     toast({ variant: "destructive", title: "Stopped", description: "Validation task halted." });
-    setTimeout(fetchAndSyncProfile, 500);
+    fetchAndSyncProfile();
   };
 
   const downloadExcel = (data: ValidationResult[], fileName: string) => {
