@@ -217,20 +217,36 @@ export default function LeadPulseDashboard() {
 
     abortControllerRef.current = new AbortController();
 
-    const chunks: string[][] = [];
-    for (let i = 0; i < lines.length; i += 10) {
-      chunks.push(lines.slice(i, i + 10));
-    }
-
-    let currentProcessedCount = 0;
-
     try {
-      for (let i = 0; i < chunks.length; i++) {
-        if (abortControllerRef.current?.signal.aborted) {
-          break;
+      // Step 1: Fetch Batch Info
+      let batchSize = 10;
+      try {
+        const batchInfoRes = await fetch('https://numcheckr.onrender.com/api/user/batch-info', {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        if (batchInfoRes.ok) {
+          const batchInfoData = await batchInfoRes.json();
+          batchSize = parseInt(batchInfoData.recommendedBatchSize) || 10;
         }
+      } catch (e) {
+        console.error("Batch info fetch failed, using default.");
+      }
 
-        if (credits < 10) {
+      // Step 2: Array Chunking
+      const chunks: string[][] = [];
+      for (let i = 0; i < lines.length; i += batchSize) {
+        chunks.push(lines.slice(i, i + batchSize));
+      }
+
+      let currentProcessedCount = 0;
+
+      // Step 3: Stream Batch Requests sequentially
+      for (let i = 0; i < chunks.length; i++) {
+        if (abortControllerRef.current?.signal.aborted) break;
+
+        // Re-check credits before starting a new batch
+        if (credits < batchSize) {
           setShowCreditModal(true);
           break;
         }
@@ -243,17 +259,18 @@ export default function LeadPulseDashboard() {
           body: JSON.stringify({ 
             email, 
             numbers: currentChunk,
-            credits: 10
+            credits: batchSize
           }),
           signal: abortControllerRef.current.signal
         });
 
+        // Instant UI credit deduction
         setCredits(prev => {
-          const nextCredits = Math.max(0, prev - 10);
-          const userStr = localStorage.getItem('user');
-          if (userStr) {
+          const nextCredits = Math.max(0, prev - batchSize);
+          const uStr = localStorage.getItem('user');
+          if (uStr) {
             try {
-              const u = JSON.parse(userStr);
+              const u = JSON.parse(uStr);
               u.credits = nextCredits;
               localStorage.setItem('user', JSON.stringify(u));
             } catch(e) {}
@@ -263,6 +280,7 @@ export default function LeadPulseDashboard() {
 
         if (!response.body) throw new Error("No response body");
 
+        // Step 4: UI State Management & SSE Handling
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -281,18 +299,24 @@ export default function LeadPulseDashboard() {
             const dataStr = part.replace('data: ', '').trim();
             
             try {
-              if (dataStr.includes('"status":"DONE"')) {
+              const data = JSON.parse(dataStr);
+
+              // Handle specific status updates from server
+              if (data.status === "DONE") {
                 chunkStreamEnded = true;
                 break;
               }
 
-              const data = JSON.parse(dataStr);
-
-              if (data && data.status === "NO_CREDITS") {
+              if (data.status === "NO_CREDITS") {
                 if (abortControllerRef.current) abortControllerRef.current.abort();
                 chunkStreamEnded = true;
                 setShowCreditModal(true);
                 break;
+              }
+
+              if (data.status === "PAUSED") {
+                console.log("Validation paused by server.");
+                continue;
               }
               
               if (Array.isArray(data)) {
@@ -323,26 +347,24 @@ export default function LeadPulseDashboard() {
                 setProgress(Math.min(100, Math.round((currentProcessedCount / lines.length) * 100)));
               }
             } catch (e) {
-              console.error("Parse error", e);
+              // Partial JSON or parse errors ignored
             }
           }
         }
       }
       
-      toast({ title: "Validation Process Finished", description: "Completed requested sequence batches." });
+      toast({ title: "Process Finished", description: "Batch validation complete." });
 
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        // Aborted
-      } else {
-        toast({ variant: 'destructive', title: 'Network Error', description: "Streaming failed or connection lost." });
+      if (err.name !== 'AbortError') {
+        toast({ variant: 'destructive', title: 'Error', description: err.message || "Connection failed." });
       }
     } finally {
       setIsProcessing(false);
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
-      }, 600);
+      }, 500);
     }
   };
 
@@ -361,7 +383,7 @@ export default function LeadPulseDashboard() {
     }
     
     setIsProcessing(false);
-    toast({ variant: "destructive", title: "Stop Signal Sent", description: "Server loop termination requested." });
+    toast({ variant: "destructive", title: "Stopped", description: "Sequence terminated." });
     setTimeout(fetchAndSyncProfile, 500);
   };
 
