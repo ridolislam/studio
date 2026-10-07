@@ -76,8 +76,10 @@ export default function AdminPanel() {
       const res = await getFullDashboardData(secret);
       
       if (res && res.success) {
-        setData(res);
-        addLog(`[STATS] Sync complete. Users: ${res.totalUsers || 0}, Rapid: ${res.totalRapid || 0}, Numverify: ${res.totalNumverify || 0}`);
+        // Handle case where users might be nested inside res.data
+        const dashboardData = res.data || res;
+        setData(dashboardData);
+        addLog(`[STATS] Sync complete. Users: ${dashboardData.totalUsers || 0}, Rapid: ${dashboardData.totalRapid || 0}, Numverify: ${dashboardData.totalNumverify || 0}`);
       } else if (res?.error === 'WAKING_UP') {
         addLog(`[WARN] Backend is waking up. Retrying in 5s...`);
         setTimeout(() => fetchData(secret), 5000);
@@ -214,7 +216,9 @@ export default function AdminPanel() {
     );
   }
 
-  const filteredUsers = (Array.isArray(data?.users) ? data.users : []).filter((u: any) => 
+  // Robustly handle the user list
+  const userList = data?.users || data?.data?.users || [];
+  const filteredUsers = (Array.isArray(userList) ? userList : []).filter((u: any) => 
     String(u?.email || "").toLowerCase().includes(search.toLowerCase())
   );
 

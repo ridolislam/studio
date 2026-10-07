@@ -60,7 +60,10 @@ export async function syncUserProfile(email: string) {
   try {
     const response = await fetch(`${API_BASE}/api/user/profile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify({ email }),
       cache: 'no-store',
     });
@@ -74,7 +77,10 @@ export async function stopValidation(email: string) {
   try {
     const response = await fetch(`${API_BASE}/api/user/stop-validation`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify({ email }),
       cache: 'no-store',
     });
@@ -88,7 +94,10 @@ export async function getUserHistory(payload: { email: string }) {
   try {
     const response = await fetch(`${API_BASE}/api/user/history`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
       cache: 'no-store',
     });
@@ -104,7 +113,10 @@ export async function getFullDashboardData(secret: string) {
   try {
     const response = await fetch(`${API_BASE}/api/admin/full-dashboard`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify({ secret }),
       cache: 'no-store'
     });
@@ -118,7 +130,10 @@ export async function uploadRapidKeys(payload: { secret: string, keys: string[] 
   try {
     const response = await fetch(`${API_BASE}/api/admin/upload-rapid`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
     });
     return await safeJson(response);
@@ -131,7 +146,10 @@ export async function uploadNumverifyKeys(payload: { secret: string, keys: strin
   try {
     const response = await fetch(`${API_BASE}/api/admin/upload-numverify`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
     });
     return await safeJson(response);
@@ -144,7 +162,10 @@ export async function updateAdminUser(payload: { secret: string, userId: string,
   try {
     const response = await fetch(`${API_BASE}/api/admin/update-user`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
     });
     return await safeJson(response);
@@ -157,7 +178,10 @@ export async function clearAdminKeys(payload: { secret: string }) {
   try {
     const response = await fetch(`${API_BASE}/api/admin/clear-all-keys`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
     });
     return await safeJson(response);
@@ -170,7 +194,10 @@ export async function createOxapayInvoice(payload: { email: string, credits: num
   try {
     const response = await fetch(`${API_BASE}/api/user/create-payment`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
       body: JSON.stringify(payload),
     });
     return await safeJson(response);
