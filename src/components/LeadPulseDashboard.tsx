@@ -1,3 +1,4 @@
+'use server';
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -199,7 +200,7 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Step 0: Check initial credits
+    // Pre-validation: Check initial credits
     if (credits < 1) {
       setShowCreditModal(true);
       return;
@@ -249,13 +250,13 @@ export default function LeadPulseDashboard() {
         const currentChunk = chunks[i];
         const cost = currentChunk.length; // 1 credit per number
 
-        // Re-check credits before starting the chunk
+        // Local credit check before batch request
         if (credits < cost) {
           setShowCreditModal(true);
           break;
         }
 
-        // Send a POST request with SSE streaming
+        // Send chunked POST request with SSE streaming
         const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -269,7 +270,7 @@ export default function LeadPulseDashboard() {
 
         if (!response.body) throw new Error("No response body");
 
-        // UI local credit deduction logic (instant feedback)
+        // UI local credit deduction logic for instant feedback
         setCredits(prev => {
           const nextCredits = Math.max(0, prev - cost);
           const uStr = localStorage.getItem('user');
@@ -305,7 +306,7 @@ export default function LeadPulseDashboard() {
             try {
               const data = JSON.parse(dataStr);
 
-              // Handle status updates
+              // Handle status updates from stream
               if (data.status === "DONE") {
                 chunkDone = true;
                 break;
@@ -319,7 +320,7 @@ export default function LeadPulseDashboard() {
               }
 
               if (data.status === "PAUSED") {
-                console.log("Processing paused by worker cluster.");
+                console.log("Worker paused. Waiting for next event.");
                 continue;
               }
               
@@ -358,15 +359,15 @@ export default function LeadPulseDashboard() {
         }
       }
       
-      toast({ title: "Validation Finished", description: "Successfully processed lead list." });
+      toast({ title: "Operation Complete", description: "Batch validation finished successfully." });
 
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        toast({ variant: 'destructive', title: 'Error', description: err.message || "Failed to communicate with worker cluster." });
+        toast({ variant: 'destructive', title: 'Stream Error', description: err.message || "Failed to communicate with worker cluster." });
       }
     } finally {
       setIsProcessing(false);
-      // Final sync to ensure credit display is 100% accurate
+      // Ensure local credits are sync'd with server at the end
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
@@ -389,7 +390,7 @@ export default function LeadPulseDashboard() {
     }
     
     setIsProcessing(false);
-    toast({ variant: "destructive", title: "Stopped", description: "Operation halted by user." });
+    toast({ variant: "destructive", title: "Stopped", description: "Validation halted manually." });
     setTimeout(fetchAndSyncProfile, 500);
   };
 
@@ -680,9 +681,9 @@ export default function LeadPulseDashboard() {
             <div className="h-14 w-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center">
               <AlertTriangle className="h-8 w-8" />
             </div>
-            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">OUT OF CREDITS</DialogTitle>
+            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">Insufficient Credits</DialogTitle>
             <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
-              Your account balance is insufficient to continue. Please top up your credits to resume validation.
+              Your account balance is too low to proceed. Please purchase more credits to continue the validation process.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="pt-4">
