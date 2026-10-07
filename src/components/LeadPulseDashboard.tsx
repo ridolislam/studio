@@ -1,4 +1,4 @@
-'use server';
+"use client";
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -219,16 +219,25 @@ export default function LeadPulseDashboard() {
     abortControllerRef.current = new AbortController();
 
     try {
+      // STEP 1: Query Resource Info
       const batchRes = await getBatchInfo();
       const recommendedBatchSize = batchRes.recommendedBatchSize || 10;
 
+      // STEP 2: Evaluate Response & Capacity
+      if (recommendedBatchSize <= 0) {
+        setIsProcessing(false);
+        toast({ variant: 'destructive', title: 'Resources Unavailable', description: 'No API Keys or system resources available at this time.' });
+        return;
+      }
+
+      // STEP 3: Chunk & Execute
       const chunks: string[][] = [];
       for (let i = 0; i < lines.length; i += recommendedBatchSize) {
         chunks.push(lines.slice(i, i + recommendedBatchSize));
       }
 
       let currentProcessedCount = 0;
-      let sessionCredits = credits; // Track credits locally to avoid closure staleness
+      let sessionCredits = credits;
 
       for (let i = 0; i < chunks.length; i++) {
         if (abortControllerRef.current?.signal.aborted) break;
@@ -236,7 +245,7 @@ export default function LeadPulseDashboard() {
         const currentChunk = chunks[i];
         const cost = currentChunk.length;
 
-        // Check against current local balance
+        // Check local capacity before each batch
         if (sessionCredits < cost) {
           setShowCreditModal(true);
           break;
@@ -255,7 +264,7 @@ export default function LeadPulseDashboard() {
 
         if (!response.body) throw new Error("Connection failed: No response body.");
 
-        // Update local session credits and UI
+        // Deduct credits locally for immediate UI feedback
         sessionCredits -= cost;
         setCredits(prev => {
           const nextCredits = Math.max(0, prev - cost);
@@ -291,6 +300,7 @@ export default function LeadPulseDashboard() {
             try {
               const data = JSON.parse(dataStr);
 
+              // STEP 4: Handle Status Events
               if (data.status === "DONE") {
                 chunkDone = true;
                 break;
@@ -336,10 +346,11 @@ export default function LeadPulseDashboard() {
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        toast({ variant: 'destructive', title: 'Connection Failed', description: "Could not reach the worker cluster." });
+        toast({ variant: 'destructive', title: 'Connection Error', description: "Failed to communicate with worker cluster." });
       }
     } finally {
       setIsProcessing(false);
+      // Final sync to ensure UI matches database exactly
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
@@ -362,7 +373,7 @@ export default function LeadPulseDashboard() {
     }
     
     setIsProcessing(false);
-    toast({ variant: "destructive", title: "Stopped", description: "Validation halted." });
+    toast({ variant: "destructive", title: "Stopped", description: "Validation task halted." });
     setTimeout(fetchAndSyncProfile, 500);
   };
 
