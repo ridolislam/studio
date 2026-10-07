@@ -28,13 +28,13 @@ export default function CreditsPage() {
   const handleGoToPayment = () => {
     const userData = localStorage.getItem('user');
     if (!userData) {
-      toast({ variant: "destructive", title: "Authentication Required", description: "দয়া করে প্রথমে লগইন করুন!" });
+      toast({ variant: "destructive", title: "Authentication Required", description: "Please login to proceed!" });
       router.push("/login");
       return;
     }
     
     if (creditAmount < 400) {
-      toast({ variant: "destructive", title: "Minimum Requirement", description: "কমপক্ষে ৪০০ ক্রেডিট কিনতে হবে!" });
+      toast({ variant: "destructive", title: "Minimum Requirement", description: "Minimum 400 credits required!" });
       return;
     }
 
@@ -159,11 +159,11 @@ export default function CreditsPage() {
             </Card>
 
             <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10 space-y-4">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">নির্দেশনা</h4>
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-primary">Instructions</h4>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                ১. ক্রেডিট সিলেক্ট করে <strong>PAY WITH CRYPTO</strong> এ ক্লিক করুন।<br/>
-                ২. আপনার পছন্দের ক্রিপ্টো কারেন্সি সিলেক্ট করুন।<br/>
-                ৩. পেমেন্ট অ্যাড্রেসে সঠিক পরিমাণ কয়েন পাঠান।
+                1. Select the credit amount and click <strong>PAY WITH CRYPTO</strong>.<br/>
+                2. Choose your preferred cryptocurrency.<br/>
+                3. Send the exact amount of coins to the generated wallet address.
               </p>
             </div>
           </div>
