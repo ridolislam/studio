@@ -19,13 +19,23 @@ import {
   AlertTriangle,
   Server,
   Database,
-  Info
+  Info,
+  Edit,
+  Save
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { 
@@ -46,6 +56,12 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
+  
+  // Credit Edit State
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [newCreditAmount, setNewCreditAmount] = useState<string>("");
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
   const [logs, setLogs] = useState<string[]>([
     "[SYSTEM] Admin Terminal Initialized.",
     "[AUTH] Ready for authorization..."
@@ -108,48 +124,42 @@ export default function AdminPanel() {
     }
   };
 
-  const handleUpdateCredits = async (user: any) => {
-    const targetUserId = user._id || user.uid || user.id;
-    const currentCredits = user.credits || 0;
+  const openEditDialog = (user: any) => {
+    setEditingUser(user);
+    setNewCreditAmount(String(user.credits || 0));
+    setIsDialogOpen(true);
+    addLog(`[UI] Opened edit dialog for ${user.email}`);
+  };
 
-    addLog(`[CLICK] Edit clicked for ${user.email} (ID: ${targetUserId})`);
-
-    if (!targetUserId) {
-      addLog(`[ERROR] User ID is missing in data object! Check backend response.`);
-      toast({ variant: "destructive", title: "Update Error", description: "User ID missing in record." });
-      return;
-    }
-
-    const newCreditsStr = prompt(`Update credits for ${user.email}:`, currentCredits.toString());
-    if (newCreditsStr === null) {
-      addLog(`[CREDITS] Update cancelled by admin.`);
-      return;
-    }
+  const handleUpdateCredits = async () => {
+    if (!editingUser) return;
     
-    const newCredits = parseInt(newCreditsStr);
-    if (isNaN(newCredits)) {
-      addLog(`[ERROR] Invalid numeric input for credits.`);
-      toast({ variant: "destructive", title: "Invalid Input", description: "Please enter a valid number." });
+    const targetUserId = editingUser._id || editingUser.uid || editingUser.id;
+    const credits = parseInt(newCreditAmount);
+
+    if (isNaN(credits)) {
+      toast({ variant: "destructive", title: "Invalid Amount", description: "Please enter a valid number." });
       return;
     }
 
     setIsUpdating(targetUserId);
-    addLog(`[CREDITS] Dispatching update for ${targetUserId} to ${newCredits} credits...`);
+    addLog(`[CREDITS] Updating ${editingUser.email} to ${credits} credits...`);
     
     try {
       const res = await updateAdminUser({ 
         secret: ADMIN_SECRET, 
         userId: targetUserId, 
-        credits: newCredits 
+        credits: credits 
       });
 
       if (res && res.success) {
-        addLog(`[SUCCESS] User ${user.email} updated to ${newCredits}.`);
+        addLog(`[SUCCESS] User ${editingUser.email} updated.`);
         toast({ title: "Success", description: "User credits updated successfully." });
+        setIsDialogOpen(false);
         await fetchData();
       } else {
         const errorMsg = res?.message || "Server rejected update";
-        addLog(`[ERROR] ${errorMsg} ${res?.raw ? `(Raw: ${res.raw})` : ''}`);
+        addLog(`[ERROR] ${errorMsg}`);
         toast({ variant: "destructive", title: "Update Failed", description: errorMsg });
       }
     } catch (error) {
@@ -371,7 +381,7 @@ export default function AdminPanel() {
                             <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
                             <TableCell className="text-right px-8">
                               <Button 
-                                onClick={() => handleUpdateCredits(user)} 
+                                onClick={() => openEditDialog(user)} 
                                 className="bg-primary rounded-xl font-black italic h-10 px-6"
                                 disabled={isUpdating === targetUserId}
                               >
@@ -387,6 +397,40 @@ export default function AdminPanel() {
              </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Edit Credits Dialog */}
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md">
+            <DialogHeader className="space-y-3">
+              <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+                <Edit className="h-6 w-6" />
+              </div>
+              <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">Update Credits</DialogTitle>
+              <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
+                Modify credit balance for <span className="text-primary">{editingUser?.email}</span>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-6 space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-primary/70">New Balance</label>
+                <Input 
+                  type="number" 
+                  value={newCreditAmount} 
+                  onChange={(e) => setNewCreditAmount(e.target.value)}
+                  className="h-14 bg-black/40 border-white/10 rounded-xl font-black italic text-xl text-primary"
+                  placeholder="Enter amount"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <DialogFooter className="gap-3 sm:gap-0">
+              <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="h-12 rounded-xl font-bold uppercase italic border-white/10">Cancel</Button>
+              <Button onClick={handleUpdateCredits} disabled={!!isUpdating} className="h-12 bg-primary text-white font-black italic rounded-xl flex items-center gap-2">
+                {isUpdating ? <Loader2 className="animate-spin h-4 w-4" /> : <Save className="h-4 w-4" />} SAVE CHANGES
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
