@@ -76,7 +76,6 @@ export default function AdminPanel() {
       const res = await getFullDashboardData(secret);
       
       if (res && res.success) {
-        // Handle case where users might be nested inside res.data
         const dashboardData = res.data || res;
         setData(dashboardData);
         addLog(`[STATS] Sync complete. Users: ${dashboardData.totalUsers || 0}, Rapid: ${dashboardData.totalRapid || 0}, Numverify: ${dashboardData.totalNumverify || 0}`);
@@ -110,19 +109,46 @@ export default function AdminPanel() {
   };
 
   const handleUpdateCredits = async (userId: string, currentCredits: number) => {
-    const newCredits = prompt("Enter new credit amount:", currentCredits.toString());
-    if (newCredits === null) return;
-    
-    setIsUpdating(userId);
-    const res = await updateAdminUser({ secret: ADMIN_SECRET, userId, credits: parseInt(newCredits) });
-    if (res && res.success) {
-      addLog(`[CREDITS] Successfully updated user ${userId}.`);
-      toast({ title: "Success", description: "User credits updated." });
-      fetchData();
-    } else {
-      toast({ variant: "destructive", title: "Update Failed", description: res?.message });
+    if (!userId) {
+      toast({ variant: "destructive", title: "Update Error", description: "User ID missing." });
+      return;
     }
-    setIsUpdating(null);
+
+    const newCreditsStr = prompt("Enter new credit amount:", currentCredits.toString());
+    if (newCreditsStr === null) return;
+    
+    const newCredits = parseInt(newCreditsStr);
+    if (isNaN(newCredits)) {
+      toast({ variant: "destructive", title: "Invalid Input", description: "Please enter a valid number." });
+      return;
+    }
+
+    setIsUpdating(userId);
+    addLog(`[CREDITS] Updating user ${userId} to ${newCredits} credits...`);
+    
+    try {
+      const res = await updateAdminUser({ 
+        secret: ADMIN_SECRET, 
+        userId, 
+        credits: newCredits 
+      });
+
+      if (res && res.success) {
+        addLog(`[CREDITS] Successfully updated user ${userId}.`);
+        toast({ title: "Success", description: "User credits updated successfully." });
+        // Refresh data to show changes
+        await fetchData();
+      } else {
+        const errorMsg = res?.message || "Failed to update credits";
+        addLog(`[ERROR] ${errorMsg}`);
+        toast({ variant: "destructive", title: "Update Failed", description: errorMsg });
+      }
+    } catch (error) {
+      addLog(`[ERROR] Connection failure during update.`);
+      toast({ variant: "destructive", title: "Error", description: "Could not connect to update endpoint." });
+    } finally {
+      setIsUpdating(null);
+    }
   };
 
   const handleClearKeys = async () => {
@@ -216,7 +242,6 @@ export default function AdminPanel() {
     );
   }
 
-  // Robustly handle the user list
   const userList = data?.users || data?.data?.users || [];
   const filteredUsers = (Array.isArray(userList) ? userList : []).filter((u: any) => 
     String(u?.email || "").toLowerCase().includes(search.toLowerCase())
@@ -329,21 +354,24 @@ export default function AdminPanel() {
                         <TableRow><TableCell colSpan={3} className="text-center py-10"><Loader2 className="animate-spin h-8 w-8 mx-auto opacity-20" /></TableCell></TableRow>
                       ) : filteredUsers.length === 0 ? (
                         <TableRow><TableCell colSpan={3} className="text-center py-10 opacity-20 font-bold">NO USERS FOUND</TableCell></TableRow>
-                      ) : filteredUsers.map((user: any) => (
-                        <TableRow key={user._id || user.uid} className="border-white/5 hover:bg-white/5">
-                          <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
-                          <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
-                          <TableCell className="text-right px-8">
-                            <Button 
-                              onClick={() => handleUpdateCredits(user._id || user.uid, user.credits)} 
-                              className="bg-primary rounded-xl font-black italic h-10 px-6"
-                              disabled={isUpdating === (user._id || user.uid)}
-                            >
-                              {isUpdating === (user._id || user.uid) ? <Loader2 className="animate-spin" /> : "EDIT"}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      ) : filteredUsers.map((user: any) => {
+                        const targetUserId = user._id || user.uid;
+                        return (
+                          <TableRow key={targetUserId} className="border-white/5 hover:bg-white/5">
+                            <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
+                            <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
+                            <TableCell className="text-right px-8">
+                              <Button 
+                                onClick={() => handleUpdateCredits(targetUserId, user.credits)} 
+                                className="bg-primary rounded-xl font-black italic h-10 px-6"
+                                disabled={isUpdating === targetUserId}
+                              >
+                                {isUpdating === targetUserId ? <Loader2 className="animate-spin" /> : "EDIT"}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>

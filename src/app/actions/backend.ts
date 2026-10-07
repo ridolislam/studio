@@ -167,10 +167,12 @@ export async function updateAdminUser(payload: { secret: string, userId: string,
         'Accept': 'application/json'
       },
       body: JSON.stringify(payload),
+      cache: 'no-store'
     });
     return await safeJson(response);
   } catch (error) {
-    return { success: false, message: 'Update failed' };
+    console.error("Update Admin User error:", error);
+    return { success: false, message: 'Update request failed due to connection error.' };
   }
 }
 
