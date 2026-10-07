@@ -1,4 +1,4 @@
-'use client';
+'use server';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -219,31 +219,29 @@ export default function LeadPulseDashboard() {
     abortControllerRef.current = new AbortController();
 
     try {
-      // Step 1: Fetch Batch Info via Server Action proxy
       const batchRes = await getBatchInfo();
       const recommendedBatchSize = batchRes.recommendedBatchSize || 10;
 
-      // Step 2: Array Chunking
       const chunks: string[][] = [];
       for (let i = 0; i < lines.length; i += recommendedBatchSize) {
         chunks.push(lines.slice(i, i + recommendedBatchSize));
       }
 
       let currentProcessedCount = 0;
+      let sessionCredits = credits; // Track credits locally to avoid closure staleness
 
-      // Step 3: Stream Batch Requests
       for (let i = 0; i < chunks.length; i++) {
         if (abortControllerRef.current?.signal.aborted) break;
 
         const currentChunk = chunks[i];
         const cost = currentChunk.length;
 
-        if (credits < cost) {
+        // Check against current local balance
+        if (sessionCredits < cost) {
           setShowCreditModal(true);
           break;
         }
 
-        // Direct call for SSE - Ensure CORS is enabled on Render
         const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -257,7 +255,8 @@ export default function LeadPulseDashboard() {
 
         if (!response.body) throw new Error("Connection failed: No response body.");
 
-        // UI local credit deduction
+        // Update local session credits and UI
+        sessionCredits -= cost;
         setCredits(prev => {
           const nextCredits = Math.max(0, prev - cost);
           const uStr = localStorage.getItem('user');
@@ -337,7 +336,7 @@ export default function LeadPulseDashboard() {
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        toast({ variant: 'destructive', title: 'Connection Failed', description: "Could not reach the worker cluster. Please try again in a moment." });
+        toast({ variant: 'destructive', title: 'Connection Failed', description: "Could not reach the worker cluster." });
       }
     } finally {
       setIsProcessing(false);
