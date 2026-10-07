@@ -77,13 +77,15 @@ export default function AdminPanel() {
       
       if (res && res.success) {
         setData(res);
-        addLog(`[STATS] Sync complete. Users: ${res.totalUsers}, Rapid: ${res.totalRapid}, Numverify: ${res.totalNumverify}`);
+        addLog(`[STATS] Sync complete. Users: ${res.totalUsers || 0}, Rapid: ${res.totalRapid || 0}, Numverify: ${res.totalNumverify || 0}`);
       } else if (res?.error === 'WAKING_UP') {
         addLog(`[WARN] Backend is waking up. Retrying in 5s...`);
         setTimeout(() => fetchData(secret), 5000);
         return;
       } else {
-        addLog(`[ERROR] ${res?.message || "Failed to sync"}`);
+        const errorMsg = res?.message || "Failed to sync";
+        addLog(`[ERROR] ${errorMsg}`);
+        toast({ variant: "destructive", title: "Sync Error", description: errorMsg });
       }
     } catch (err) {
       addLog("[ERROR] Critical connection failure.");

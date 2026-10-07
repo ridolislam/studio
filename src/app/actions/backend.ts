@@ -84,12 +84,11 @@ export async function getUserHistory(payload: { email: string }) {
 
 export async function getFullDashboardData(secret: string) {
   try {
+    // Changed to POST to match other admin actions which send secret in body
     const response = await fetch(`${API_BASE}/api/admin/full-dashboard`, {
-      method: 'GET',
-      headers: { 
-        'admin-secret': secret,
-        'Content-Type': 'application/json' 
-      },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
       cache: 'no-store'
     });
     return await safeJson(response);
