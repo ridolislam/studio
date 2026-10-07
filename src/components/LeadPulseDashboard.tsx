@@ -219,18 +219,15 @@ export default function LeadPulseDashboard() {
     abortControllerRef.current = new AbortController();
 
     try {
-      // STEP 1: Query Resource Info
       const batchRes = await getBatchInfo();
       const recommendedBatchSize = batchRes.recommendedBatchSize || 10;
 
-      // STEP 2: Evaluate Response & Capacity
       if (recommendedBatchSize <= 0) {
         setIsProcessing(false);
         toast({ variant: 'destructive', title: 'Resources Unavailable', description: 'No API Keys or system resources available at this time.' });
         return;
       }
 
-      // STEP 3: Chunk & Execute
       const chunks: string[][] = [];
       for (let i = 0; i < lines.length; i += recommendedBatchSize) {
         chunks.push(lines.slice(i, i + recommendedBatchSize));
@@ -245,7 +242,6 @@ export default function LeadPulseDashboard() {
         const currentChunk = chunks[i];
         const cost = currentChunk.length;
 
-        // Check local capacity before each batch
         if (sessionCredits < cost) {
           setShowCreditModal(true);
           break;
@@ -264,19 +260,24 @@ export default function LeadPulseDashboard() {
 
         if (!response.body) throw new Error("Connection failed: No response body.");
 
-        // Deduct credits locally for immediate UI feedback
         sessionCredits -= cost;
         setCredits(prev => {
           const nextCredits = Math.max(0, prev - cost);
-          const uStr = localStorage.getItem('user');
-          if (uStr) {
-            try {
-              const u = JSON.parse(uStr);
-              u.credits = nextCredits;
-              localStorage.setItem('user', JSON.stringify(u));
-              window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: nextCredits } }));
-            } catch(e) {}
-          }
+          
+          // Defer side effects (localStorage update and event dispatch) to avoid 
+          // updating DashboardPage while LeadPulseDashboard is rendering.
+          setTimeout(() => {
+            const uStr = localStorage.getItem('user');
+            if (uStr) {
+              try {
+                const u = JSON.parse(uStr);
+                u.credits = nextCredits;
+                localStorage.setItem('user', JSON.stringify(u));
+                window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: nextCredits } }));
+              } catch(e) {}
+            }
+          }, 0);
+          
           return nextCredits;
         });
 
@@ -300,7 +301,6 @@ export default function LeadPulseDashboard() {
             try {
               const data = JSON.parse(dataStr);
 
-              // STEP 4: Handle Status Events
               if (data.status === "DONE") {
                 chunkDone = true;
                 break;
@@ -350,7 +350,6 @@ export default function LeadPulseDashboard() {
       }
     } finally {
       setIsProcessing(false);
-      // Final sync to ensure UI matches database exactly
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
