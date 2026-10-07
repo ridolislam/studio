@@ -1,4 +1,3 @@
-'use server';
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -200,7 +199,6 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Pre-validation: Check initial credits
     if (credits < 1) {
       setShowCreditModal(true);
       return;
@@ -232,7 +230,7 @@ export default function LeadPulseDashboard() {
           recommendedBatchSize = parseInt(batchInfoData.recommendedBatchSize) || 10;
         }
       } catch (e) {
-        console.error("Batch info fetch failed, using default.");
+        console.error("Batch info fetch failed, using default 10.");
       }
 
       // Step 2: Array Chunking
@@ -243,20 +241,20 @@ export default function LeadPulseDashboard() {
 
       let currentProcessedCount = 0;
 
-      // Step 3: Iterate through each chunk sequentially
+      // Step 3: Stream Batch Requests (Sequential iteration through each chunk)
       for (let i = 0; i < chunks.length; i++) {
         if (abortControllerRef.current?.signal.aborted) break;
 
         const currentChunk = chunks[i];
-        const cost = currentChunk.length; // 1 credit per number
+        const cost = currentChunk.length;
 
-        // Local credit check before batch request
+        // Re-check credits before starting the chunk
         if (credits < cost) {
           setShowCreditModal(true);
           break;
         }
 
-        // Send chunked POST request with SSE streaming
+        // Send POST request with SSE streaming
         const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -268,9 +266,9 @@ export default function LeadPulseDashboard() {
           signal: abortControllerRef.current.signal
         });
 
-        if (!response.body) throw new Error("No response body");
+        if (!response.body) throw new Error("No response body from worker cluster.");
 
-        // UI local credit deduction logic for instant feedback
+        // UI local credit deduction logic (instant feedback)
         setCredits(prev => {
           const nextCredits = Math.max(0, prev - cost);
           const uStr = localStorage.getItem('user');
@@ -306,7 +304,7 @@ export default function LeadPulseDashboard() {
             try {
               const data = JSON.parse(dataStr);
 
-              // Handle status updates from stream
+              // Handle status updates
               if (data.status === "DONE") {
                 chunkDone = true;
                 break;
@@ -320,11 +318,11 @@ export default function LeadPulseDashboard() {
               }
 
               if (data.status === "PAUSED") {
-                console.log("Worker paused. Waiting for next event.");
+                console.log("Worker cluster indicates processing is paused.");
                 continue;
               }
               
-              // Handle result arrays
+              // Handle results
               if (Array.isArray(data)) {
                 const newResults: ValidationResult[] = data.map((item: any) => ({
                   id: Math.random().toString(36).substr(2, 9),
@@ -353,21 +351,21 @@ export default function LeadPulseDashboard() {
                 setProgress(Math.min(100, Math.round((currentProcessedCount / lines.length) * 100)));
               }
             } catch (e) {
-              // Parse error handling
+              // Ignore partial or malformed JSON chunks
             }
           }
         }
       }
       
-      toast({ title: "Operation Complete", description: "Batch validation finished successfully." });
+      toast({ title: "Validation Process Ended", description: "Completed all batches from the lead list." });
 
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        toast({ variant: 'destructive', title: 'Stream Error', description: err.message || "Failed to communicate with worker cluster." });
+        toast({ variant: 'destructive', title: 'System Error', description: err.message || "Failed to communicate with worker cluster." });
       }
     } finally {
       setIsProcessing(false);
-      // Ensure local credits are sync'd with server at the end
+      // Final sync for accuracy
       setTimeout(() => {
         fetchAndSyncProfile();
         fetchHistory();
@@ -390,7 +388,7 @@ export default function LeadPulseDashboard() {
     }
     
     setIsProcessing(false);
-    toast({ variant: "destructive", title: "Stopped", description: "Validation halted manually." });
+    toast({ variant: "destructive", title: "Process Halted", description: "You have manually stopped the validation." });
     setTimeout(fetchAndSyncProfile, 500);
   };
 
@@ -497,7 +495,7 @@ export default function LeadPulseDashboard() {
               <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden shadow-xl">
                 <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-primary" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Live Stream Worker</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Live Worker Data</span>
                 </div>
                 <ScrollArea className="h-[280px] p-4 font-code text-[10px] text-green-400 bg-black/60">
                   {liveJson ? (
@@ -550,7 +548,7 @@ export default function LeadPulseDashboard() {
 
               <div className="bg-card/40 p-4 rounded-2xl border border-white/5">
                 <div className="flex items-center justify-between mb-2 px-1">
-                   <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Validation Progress</span>
+                   <span className="text-[10px] font-black uppercase tracking-widest opacity-50">Overall Progress</span>
                    <span className="text-[10px] font-black text-primary">{progress}%</span>
                 </div>
                 <Progress value={progress} className="h-3 bg-primary/10" />
@@ -560,7 +558,7 @@ export default function LeadPulseDashboard() {
                 <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="bg-primary/10 text-primary border-none text-[9px] font-black">LIVE</Badge>
-                    <span className="text-xs font-black uppercase tracking-widest opacity-70">Distributed Results</span>
+                    <span className="text-xs font-black uppercase tracking-widest opacity-70">Distributed Worker Output</span>
                   </div>
                   <Button 
                     size="sm" 
@@ -681,9 +679,9 @@ export default function LeadPulseDashboard() {
             <div className="h-14 w-14 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center">
               <AlertTriangle className="h-8 w-8" />
             </div>
-            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">Insufficient Credits</DialogTitle>
+            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">OUT OF CREDITS</DialogTitle>
             <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
-              Your account balance is too low to proceed. Please purchase more credits to continue the validation process.
+              Your account balance is insufficient to continue. Please top up your credits to resume validation.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="pt-4">
