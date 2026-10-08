@@ -38,10 +38,8 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { syncUserProfile, getUserHistory, stopValidation, getBatchInfo, getActiveServer } from '@/app/actions/backend';
-import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 
@@ -110,7 +108,6 @@ export default function LeadPulseDashboard() {
     fetchHistory();
     fetchBatchInfo();
 
-    // Periodic Server Check
     const interval = setInterval(async () => {
       if (!isProcessing) {
         const res = await getActiveServer();
@@ -228,7 +225,6 @@ export default function LeadPulseDashboard() {
     const email = userData.email || userData.data?.email || userData.user?.email;
     if (!email) return;
 
-    // Strict Resource Pre-Check
     setIsCheckingResources(true);
     const resources = await fetchBatchInfo();
     setIsCheckingResources(false);
@@ -300,7 +296,6 @@ export default function LeadPulseDashboard() {
           try {
             const data = JSON.parse(dataStr);
 
-            // Handle Status Objects
             if (!Array.isArray(data)) {
               if (data.status === "DONE") {
                 reader.cancel();
@@ -321,6 +316,7 @@ export default function LeadPulseDashboard() {
                   requested: data.requested || linesToProcess.length 
                 });
                 setIsProcessing(false);
+                fetchAndSyncProfile();
                 return;
               }
               if (data.status === "ERROR" || data.error) {
@@ -331,11 +327,9 @@ export default function LeadPulseDashboard() {
               continue;
             }
 
-            // Handle Array of Results (Parallel Matching by Number)
             setResults(prev => {
               const next = [...prev];
               data.forEach((item: any) => {
-                // Find all pending instances of this number (handles duplicates)
                 const pendingRows = next.filter(r => r.number === item.number && r.type === 'Pending');
                 if (pendingRows.length > 0) {
                   const targetRow = pendingRows[0];
@@ -520,7 +514,9 @@ export default function LeadPulseDashboard() {
                     </Button>
                     <Button 
                       onClick={async () => { 
-                        await stopValidation(JSON.parse(localStorage.getItem('user') || '{}').email); 
+                        const userData = JSON.parse(localStorage.getItem('user') || '{}');
+                        const email = userData.email || userData.data?.email || userData.user?.email;
+                        if (email) await stopValidation(email); 
                         abortControllerRef.current?.abort(); 
                         setIsProcessing(false); 
                       }} 
@@ -729,12 +725,11 @@ export default function LeadPulseDashboard() {
             <DialogDescription asChild>
               <div className="font-bold text-muted-foreground uppercase py-4 space-y-2">
                 <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                  <span>Required:</span>
-                  <span className="text-primary text-xl">{showCreditModal.requested}</span>
+                  <span className="text-[10px]">Processing stopped due to zero credits.</span>
                 </div>
                 <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                  <span>Available:</span>
-                  <span className="text-destructive text-xl">{showCreditModal.available}</span>
+                  <span className="text-[10px]">Available Credits:</span>
+                  <span className="text-destructive text-xl font-black italic">{showCreditModal.available}</span>
                 </div>
               </div>
             </DialogDescription>
