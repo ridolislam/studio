@@ -19,7 +19,9 @@ import {
   ChevronDown,
   Info,
   ShieldAlert,
-  HelpCircle
+  HelpCircle,
+  Copy,
+  FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -75,6 +77,7 @@ export default function LeadPulseDashboard() {
   const [lastIndex, setLastIndex] = useState(0);
   const [batchInfo, setBatchInfo] = useState<any>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -130,6 +133,70 @@ export default function LeadPulseDashboard() {
       const res = await getUserHistory({ email });
       if (res.success) setHistory(res.history || []);
     } catch (e) {}
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = event.target?.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        
+        const extractedNumbers = rows
+          .map(row => String(row[0] || '').trim())
+          .filter(num => num.length >= 3);
+
+        if (extractedNumbers.length > 0) {
+          setNumberInput(prev => {
+            const separator = prev.endsWith('\n') || prev === '' ? '' : '\n';
+            return prev + separator + extractedNumbers.join('\n');
+          });
+          toast({ title: "Success", description: `${extractedNumbers.length} numbers imported from file.` });
+        } else {
+          toast({ variant: "destructive", title: "Empty File", description: "No valid numbers found in column A." });
+        }
+      } catch (err) {
+        toast({ variant: "destructive", title: "Error", description: "Could not parse file. Use Excel or CSV." });
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const downloadSingleResult = (res: ValidationResult) => {
+    const content = `
+Number: ${res.number}
+Status: ${res.status.toUpperCase()}
+Type: ${res.type}
+Carrier: ${res.carrier}
+Location: ${res.location}
+Country: ${res.country_name || 'N/A'} (${res.country_code || 'N/A'})
+Provider: ${res.provider || 'S1'}
+Timestamp: ${res.timestamp}
+${res.phonevalidator ? `
+Fake Detection: ${res.phonevalidator.fake_number}
+Reason: ${res.phonevalidator.fake_reason || 'None'}
+Outside US: ${res.phonevalidator.outside_us}
+` : ''}
+    `.trim();
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `result_${res.number}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    toast({ title: "Downloaded", description: `Result for ${res.number} saved.` });
   };
 
   const handleStart = async (resume = false) => {
@@ -191,10 +258,8 @@ export default function LeadPulseDashboard() {
           try {
             const data = JSON.parse(dataStr);
 
-            // Handle Status Events
             if (!Array.isArray(data)) {
               if (data.status === "DONE") {
-                toast({ title: "Task Complete", description: "All numbers processed successfully." });
                 setIsProcessing(false);
                 fetchAndSyncProfile();
                 return;
@@ -206,28 +271,14 @@ export default function LeadPulseDashboard() {
                   requested: data.requested || linesToProcess.length 
                 });
                 setIsProcessing(false);
-                fetchAndSyncProfile();
-                return;
-              }
-              if (data.status === "PAUSED") {
-                setLastIndex(prev => prev + (data.lastIndex || 0));
-                setIsProcessing(false);
-                fetchAndSyncProfile();
-                return;
-              }
-              if (data.error) {
-                toast({ variant: "destructive", title: "Stream Error", description: data.error });
-                setIsProcessing(false);
                 return;
               }
               continue;
             }
 
-            // Handle Batch Results (Array)
             setResults(prev => {
               const next = [...prev];
               data.forEach((item: any) => {
-                // Find all matching pending rows for this number (handling duplicates)
                 const pendingRows = next.filter(r => r.number === item.number && r.type === 'Pending');
                 if (pendingRows.length > 0) {
                   const targetRow = pendingRows[0];
@@ -333,10 +384,25 @@ export default function LeadPulseDashboard() {
             <div className="xl:col-span-1 space-y-6">
               <Card className="border-white/10 bg-card shadow-2xl overflow-hidden">
                 <div className="h-1 bg-primary w-full" />
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-xs font-black uppercase text-primary flex items-center gap-2">
                     <Terminal className="h-3 w-3" /> Input Queue
                   </CardTitle>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-8 rounded-lg text-[10px] font-black uppercase bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20"
+                  >
+                    <Upload className="h-3 w-3 mr-1" /> Upload
+                  </Button>
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    accept=".xlsx,.xls,.csv" 
+                    onChange={handleFileUpload}
+                  />
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Textarea 
@@ -375,12 +441,6 @@ export default function LeadPulseDashboard() {
                           </SelectContent>
                         </Select>
                       </div>
-                      {batchInfo && (
-                        <div className="p-3 rounded-xl bg-white/5 text-[9px] font-bold uppercase space-y-1">
-                           <div className="flex justify-between"><span>Throughput:</span> <span className="text-primary">{batchInfo.recommendedBatchSize} req/batch</span></div>
-                           <div className="flex justify-between"><span>Rapid Capacity:</span> <span>{batchInfo.totalRapid} keys</span></div>
-                        </div>
-                      )}
                     </CollapsibleContent>
                   </Collapsible>
 
@@ -477,10 +537,34 @@ export default function LeadPulseDashboard() {
                         <TableRow><TableCell colSpan={5} className="h-80 text-center opacity-20 font-black italic uppercase tracking-[0.2em] scale-90">Waiting for data stream...</TableCell></TableRow>
                       ) : (
                         results.map(res => (
-                          <TableRow key={res.id} className="h-20 border-white/5 hover:bg-white/5 transition-colors group">
+                          <TableRow 
+                            key={res.id} 
+                            onClick={() => res.type !== 'Pending' && downloadSingleResult(res)}
+                            className={cn(
+                              "h-20 border-white/5 hover:bg-white/5 transition-colors group cursor-pointer",
+                              res.type === 'Pending' && "cursor-wait opacity-50"
+                            )}
+                          >
                             <TableCell className="px-8">
                               <div className="flex flex-col">
-                                <span className="font-code font-black text-primary text-base">{res.number}</span>
+                                <span className="font-code font-black text-primary text-base flex items-center gap-2">
+                                  {res.number}
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Copy 
+                                          className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" 
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigator.clipboard.writeText(res.number);
+                                            toast({ title: "Copied", description: "Number copied to clipboard." });
+                                          }}
+                                        />
+                                      </TooltipTrigger>
+                                      <TooltipContent><p className="text-[8px]">Copy Number</p></TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                </span>
                                 <span className="text-[9px] font-bold opacity-30 uppercase">{res.timestamp.split('T')[1].split('.')[0]}</span>
                               </div>
                             </TableCell>
@@ -497,9 +581,6 @@ export default function LeadPulseDashboard() {
                                     <AlertTriangle className="h-2 w-2" /> {res.phonevalidator.fake_reason || 'Burner Line Detected'}
                                   </span>
                                 )}
-                                {res.error && (
-                                  <span className="text-[8px] font-bold text-red-400 uppercase italic max-w-[150px] truncate">{res.error}</span>
-                                )}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -510,11 +591,16 @@ export default function LeadPulseDashboard() {
                             </TableCell>
                             <TableCell className="text-xs font-bold italic opacity-70 group-hover:opacity-100 transition-opacity">{res.carrier}</TableCell>
                             <TableCell className="text-right px-8">
-                              {res.provider === 'phonevalidator' ? (
-                                <Badge variant="outline" className="text-[8px] font-black border-accent/30 text-accent uppercase tracking-tighter">Server 2 (PV)</Badge>
-                              ) : (
-                                res.type !== 'Pending' && <Badge variant="outline" className="text-[8px] font-black border-primary/30 text-primary uppercase tracking-tighter">Server 1 (NV)</Badge>
-                              )}
+                              <div className="flex flex-col items-end gap-2">
+                                {res.provider === 'phonevalidator' ? (
+                                  <Badge variant="outline" className="text-[8px] font-black border-accent/30 text-accent uppercase tracking-tighter">Server 2 (PV)</Badge>
+                                ) : (
+                                  res.type !== 'Pending' && <Badge variant="outline" className="text-[8px] font-black border-primary/30 text-primary uppercase tracking-tighter">Server 1 (NV)</Badge>
+                                )}
+                                {res.type !== 'Pending' && (
+                                  <FileText className="h-4 w-4 opacity-0 group-hover:opacity-100 text-primary transition-all" />
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))
