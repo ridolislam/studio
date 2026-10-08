@@ -91,6 +91,7 @@ export default function LeadPulseDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -154,7 +155,11 @@ export default function LeadPulseDashboard() {
         setCredits(res.credits);
         const updatedUser = { ...userData, credits: res.credits };
         localStorage.setItem('user', JSON.stringify(updatedUser));
-        window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
+        
+        // Use timeout to avoid hydration/render conflicts
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
+        }, 0);
       }
     } finally {
       setIsSyncing(false);
@@ -248,8 +253,8 @@ export default function LeadPulseDashboard() {
     }
 
     setIsProcessing(true);
-    const linesToProcess = resume ? allLines.slice(lastIndex) : allLines;
-
+    stopRequestedRef.current = false;
+    
     if (!resume) {
       setProgress(0);
       setResults(allLines.map(num => ({ 
@@ -265,129 +270,149 @@ export default function LeadPulseDashboard() {
       setLastIndex(0);
     }
 
+    const batchSize = resources.recommendedBatchSize || 10;
+    let currentIndex = resume ? lastIndex : 0;
+
+    while (currentIndex < allLines.length && !stopRequestedRef.current) {
+      const chunk = allLines.slice(currentIndex, currentIndex + batchSize);
+      
+      try {
+        await processChunk(email, chunk, allLines.length);
+        currentIndex += chunk.length;
+        setLastIndex(currentIndex);
+      } catch (err: any) {
+        if (err.message === 'NO_CREDITS') break;
+        if (err.name === 'AbortError') break;
+        console.error("Chunk processing error:", err);
+        break;
+      }
+
+      if (stopRequestedRef.current) break;
+    }
+
+    setIsProcessing(false);
+    fetchAndSyncProfile();
+  };
+
+  const processChunk = async (email: string, chunk: string[], totalCount: number) => {
     abortControllerRef.current = new AbortController();
 
-    try {
-      const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, numbers: linesToProcess, region }),
-        signal: abortControllerRef.current.signal
-      });
+    const response = await fetch('https://numcheckr.onrender.com/api/user/validate-distributed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, numbers: chunk, region }),
+      signal: abortControllerRef.current.signal
+    });
 
-      if (!response.body) throw new Error("No stream body");
+    if (!response.body) throw new Error("No stream body");
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split('\n\n');
-        buffer = events.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
 
-        for (const event of events) {
-          const dataStr = event.replace(/^data: /, '').trim();
-          if (!dataStr) continue;
-          
-          try {
-            const data = JSON.parse(dataStr);
+      for (const event of events) {
+        const dataStr = event.replace(/^data: /, '').trim();
+        if (!dataStr) continue;
+        
+        try {
+          const data = JSON.parse(dataStr);
 
-            if (!Array.isArray(data)) {
-              if (data.status === "DONE") {
-                reader.cancel();
-                setIsProcessing(false);
-                fetchAndSyncProfile();
-                return;
-              }
-              if (data.status === "PAUSED") {
-                setLastIndex(data.lastIndex || 0);
-                setIsProcessing(false);
-                return;
-              }
-              if (data.status === "NO_CREDITS") {
-                reader.cancel();
-                setShowCreditModal({ 
-                  open: true, 
-                  available: data.available || credits, 
-                  requested: data.requested || linesToProcess.length 
-                });
-                setIsProcessing(false);
-                fetchAndSyncProfile();
-                return;
-              }
-              if (data.status === "ERROR" || data.error) {
-                toast({ variant: "destructive", title: "Process Error", description: data.error || "Server error, please retry." });
-                setIsProcessing(false);
-                return;
-              }
-              continue;
+          if (!Array.isArray(data)) {
+            if (data.status === "DONE") {
+              await reader.cancel();
+              return;
             }
-
-            setResults(prev => {
-              const next = [...prev];
-              data.forEach((item: any) => {
-                const pendingRows = next.filter(r => r.number === item.number && r.type === 'Pending');
-                if (pendingRows.length > 0) {
-                  const targetRow = pendingRows[0];
-                  const idx = next.indexOf(targetRow);
-
-                  let finalStatus: any = 'invalid';
-                  const typeLower = (item.line_type || '').toLowerCase();
-
-                  if (item.error) {
-                    finalStatus = 'failed';
-                    setCounts(c => ({...c, failed: c.failed + 1}));
-                  } else if (item.valid === true) {
-                    finalStatus = 'success';
-                    if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
-                    else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
-                    else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
-                    else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
-                    else setCounts(c => ({...c, mobile: c.mobile + 1}));
-                  } else if (item.valid === false && item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
-                    finalStatus = 'fake';
-                    setCounts(c => ({...c, fake: c.fake + 1}));
-                  } else {
-                    finalStatus = 'invalid';
-                    setCounts(c => ({...c, invalid: c.invalid + 1}));
-                  }
-
-                  next[idx] = {
-                    ...next[idx],
-                    type: item.error ? 'Failed' : (item.line_type || 'Invalid'),
-                    carrier: item.carrier || '—',
-                    location: item.location || item.country_name || '—',
-                    country_code: item.country_code,
-                    country_name: item.country_name,
-                    status: finalStatus,
-                    provider: item.provider,
-                    phonevalidator: item.phonevalidator,
-                    error: item.error,
-                    timestamp: new Date().toISOString()
-                  };
-                }
+            if (data.status === "PAUSED") {
+              await reader.cancel();
+              return;
+            }
+            if (data.status === "NO_CREDITS") {
+              await reader.cancel();
+              setShowCreditModal({ 
+                open: true, 
+                available: data.available || credits, 
+                requested: data.requested || chunk.length 
               });
-              
-              const processed = next.filter(r => r.type !== 'Pending').length;
-              setProgress(Math.round((processed / allLines.length) * 100));
-              return next;
+              throw new Error('NO_CREDITS');
+            }
+            if (data.status === "ERROR" || data.error) {
+              await reader.cancel();
+              toast({ variant: "destructive", title: "Process Error", description: data.error || "Server error" });
+              throw new Error(data.error || 'SERVER_ERROR');
+            }
+            continue;
+          }
+
+          setResults(prev => {
+            const next = [...prev];
+            data.forEach((item: any) => {
+              const pendingRows = next.filter(r => r.number === item.number && r.type === 'Pending');
+              if (pendingRows.length > 0) {
+                const targetRow = pendingRows[0];
+                const idx = next.indexOf(targetRow);
+
+                let finalStatus: any = 'invalid';
+                const typeLower = (item.line_type || '').toLowerCase();
+
+                if (item.error) {
+                  finalStatus = 'failed';
+                  setCounts(c => ({...c, failed: c.failed + 1}));
+                } else if (item.valid === true) {
+                  finalStatus = 'success';
+                  if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
+                  else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
+                  else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
+                  else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
+                  else setCounts(c => ({...c, mobile: c.mobile + 1}));
+                } else if (item.valid === false && item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
+                  finalStatus = 'fake';
+                  setCounts(c => ({...c, fake: c.fake + 1}));
+                } else {
+                  finalStatus = 'invalid';
+                  setCounts(c => ({...c, invalid: c.invalid + 1}));
+                }
+
+                next[idx] = {
+                  ...next[idx],
+                  type: item.error ? 'Failed' : (item.line_type || 'Invalid'),
+                  carrier: item.carrier || '—',
+                  location: item.location || item.country_name || '—',
+                  country_code: item.country_code,
+                  country_name: item.country_name,
+                  status: finalStatus,
+                  provider: item.provider,
+                  phonevalidator: item.phonevalidator,
+                  error: item.error,
+                  timestamp: new Date().toISOString()
+                };
+              }
             });
-            setLiveJson(data[data.length - 1]);
-          } catch (e) {}
-        }
+            
+            const processed = next.filter(r => r.type !== 'Pending').length;
+            setProgress(Math.round((processed / totalCount) * 100));
+            return next;
+          });
+          setLiveJson(data[data.length - 1]);
+        } catch (e) {}
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        toast({ variant: "destructive", title: "Connection Lost", description: "Server connection failed. You can resume processing later." });
-      }
-    } finally {
-      setIsProcessing(false);
-      fetchAndSyncProfile();
     }
+  };
+
+  const handleStop = async () => {
+    stopRequestedRef.current = true;
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const email = userData.email || userData.data?.email || userData.user?.email;
+    if (email) await stopValidation(email); 
+    abortControllerRef.current?.abort(); 
+    setIsProcessing(false);
   };
 
   const downloadResults = (filter?: 'valid' | 'invalid' | 'failed') => {
@@ -513,13 +538,7 @@ export default function LeadPulseDashboard() {
                       {isProcessing || isCheckingResources ? <Loader2 className="animate-spin" /> : <><Play className="mr-2 h-4 w-4 group-hover:fill-current" /> START</>}
                     </Button>
                     <Button 
-                      onClick={async () => { 
-                        const userData = JSON.parse(localStorage.getItem('user') || '{}');
-                        const email = userData.email || userData.data?.email || userData.user?.email;
-                        if (email) await stopValidation(email); 
-                        abortControllerRef.current?.abort(); 
-                        setIsProcessing(false); 
-                      }} 
+                      onClick={handleStop} 
                       disabled={!isProcessing} 
                       variant="destructive" 
                       className="h-14 font-black italic rounded-xl"
@@ -722,17 +741,15 @@ export default function LeadPulseDashboard() {
               <ShieldAlert className="h-10 w-10 text-destructive" />
             </div>
             <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Insufficient Balance</DialogTitle>
-            <DialogDescription asChild>
-              <div className="font-bold text-muted-foreground uppercase py-4 space-y-2">
-                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                  <span className="text-[10px]">Processing stopped due to zero credits.</span>
-                </div>
-                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                  <span className="text-[10px]">Available Credits:</span>
-                  <span className="text-destructive text-xl font-black italic">{showCreditModal.available}</span>
-                </div>
+            <div className="py-4 space-y-2">
+              <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase">Processing stopped due to zero credits.</span>
               </div>
-            </DialogDescription>
+              <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase">Available Credits:</span>
+                <span className="text-destructive text-xl font-black italic">{showCreditModal.available}</span>
+              </div>
+            </div>
           </DialogHeader>
           <DialogFooter className="pb-6 px-6 sm:justify-center">
             <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all">
