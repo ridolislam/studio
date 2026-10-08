@@ -21,7 +21,9 @@ import {
   Database,
   Info,
   Edit,
-  Save
+  Save,
+  Activity,
+  ShieldCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -43,21 +45,28 @@ import {
   updateAdminUser, 
   uploadRapidKeys,
   uploadNumverifyKeys,
-  clearAdminKeys
+  clearAdminKeys,
+  getServerInfo,
+  setServer,
+  uploadPhoneValidatorKeys,
+  clearPhoneValidatorKeys
 } from "@/app/actions/backend";
 import { read, utils } from 'xlsx';
 import Logo from "@/components/Logo";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 export default function AdminPanel() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [secretInput, setSecretInput] = useState("");
   const [data, setData] = useState<any>(null);
+  const [serverInfo, setServerInfo] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
+  const [isSwitchingServer, setIsSwitchingServer] = useState(false);
   
-  // Credit Edit State
   const [editingUser, setEditingUser] = useState<any>(null);
   const [newCreditAmount, setNewCreditAmount] = useState<string>("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -87,26 +96,22 @@ export default function AdminPanel() {
 
   const fetchData = async (secret: string = ADMIN_SECRET) => {
     setLoading(true);
-    addLog(`[SYSTEM] Syncing full dashboard...`);
+    addLog(`[SYSTEM] Syncing command center...`);
     try {
-      const res = await getFullDashboardData(secret);
+      const [dashRes, serverRes] = await Promise.all([
+        getFullDashboardData(secret),
+        getServerInfo(secret)
+      ]);
       
-      if (res && res.success) {
-        const dashboardData = res.data || res;
-        setData(dashboardData);
-        addLog(`[STATS] Sync complete. Users: ${dashboardData.users?.length || dashboardData.totalUsers || 0}`);
-      } else if (res?.error === 'WAKING_UP') {
-        addLog(`[WARN] Backend is waking up. Retrying in 5s...`);
-        setTimeout(() => fetchData(secret), 5000);
-        return;
-      } else {
-        const errorMsg = res?.message || "Failed to sync";
-        addLog(`[ERROR] ${errorMsg}`);
-        toast({ variant: "destructive", title: "Sync Error", description: errorMsg });
+      if (dashRes && dashRes.success) {
+        setData(dashRes.data || dashRes);
+      }
+      if (serverRes && serverRes.success) {
+        setServerInfo(serverRes);
+        addLog(`[STATS] Active Server: ${serverRes.activeServer === 2 ? 'PV v4' : 'Numverify'}`);
       }
     } catch (err) {
       addLog("[ERROR] Critical connection failure.");
-      toast({ variant: "destructive", title: "Sync Error", description: "Backend connection failed." });
     } finally {
       setLoading(false);
     }
@@ -124,70 +129,66 @@ export default function AdminPanel() {
     }
   };
 
-  const openEditDialog = (user: any) => {
-    setEditingUser(user);
-    setNewCreditAmount(String(user.credits || 0));
-    setIsDialogOpen(true);
-    addLog(`[UI] Opened edit dialog for ${user.email}`);
-  };
-
-  const handleUpdateCredits = async () => {
-    if (!editingUser) return;
-    
-    const targetUserId = editingUser._id || editingUser.uid || editingUser.id;
-    const credits = parseInt(newCreditAmount);
-
-    if (isNaN(credits)) {
-      toast({ variant: "destructive", title: "Invalid Amount", description: "Please enter a valid number." });
-      return;
-    }
-
-    setIsUpdating(targetUserId);
-    addLog(`[CREDITS] Updating ${editingUser.email} to ${credits} credits...`);
-    
+  const handleSetServer = async (newServer: number) => {
+    if (!confirm(`Switch to Server ${newServer}?`)) return;
+    setIsSwitchingServer(true);
     try {
-      const res = await updateAdminUser({ 
-        secret: ADMIN_SECRET, 
-        userId: targetUserId, 
-        credits: credits 
-      });
-
-      if (res && res.success) {
-        addLog(`[SUCCESS] User ${editingUser.email} updated.`);
-        toast({ title: "Success", description: "User credits updated successfully." });
-        setIsDialogOpen(false);
+      const res = await setServer({ secret: ADMIN_SECRET, server: newServer });
+      if (res.success) {
+        toast({ title: "Server Switched", description: res.message });
         await fetchData();
       } else {
-        const errorMsg = res?.message || "Server rejected update";
-        addLog(`[ERROR] ${errorMsg}`);
-        toast({ variant: "destructive", title: "Update Failed", description: errorMsg });
+        toast({ variant: "destructive", title: "Switch Failed", description: res.message });
       }
-    } catch (error) {
-      addLog(`[ERROR] Connection failure during POST request.`);
-      toast({ variant: "destructive", title: "Error", description: "Could not connect to update endpoint." });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: "Connection error." });
     } finally {
-      setIsUpdating(null);
+      setIsSwitchingServer(false);
     }
   };
 
-  const handleClearKeys = async () => {
-    if (!confirm("Are you sure you want to WIPE all API keys? This cannot be undone.")) return;
+  const handleClearPVKeys = async () => {
+    if (!confirm("WIPE all Phone Validator keys?")) return;
     setIsClearing(true);
     try {
-      const res = await clearAdminKeys({ secret: ADMIN_SECRET });
-      if (res && res.success) {
-        addLog(`[WIPE] All keys cleared from the central database.`);
+      const res = await clearPhoneValidatorKeys({ secret: ADMIN_SECRET });
+      if (res.success) {
         toast({ title: "Success", description: res.message });
-        fetchData();
+        await fetchData();
       }
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Wipe operation failed." });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: "Wipe failed." });
     } finally {
       setIsClearing(false);
     }
   };
 
-  const processExcel = (e: React.ChangeEvent<HTMLInputElement>, type: 'rapid' | 'numverify') => {
+  const openEditDialog = (user: any) => {
+    setEditingUser(user);
+    setNewCreditAmount(String(user.credits || 0));
+    setIsDialogOpen(true);
+  };
+
+  const handleUpdateCredits = async () => {
+    if (!editingUser) return;
+    const targetUserId = editingUser._id || editingUser.uid || editingUser.id;
+    const credits = parseInt(newCreditAmount);
+    if (isNaN(credits)) return;
+
+    setIsUpdating(targetUserId);
+    try {
+      const res = await updateAdminUser({ secret: ADMIN_SECRET, userId: targetUserId, credits });
+      if (res.success) {
+        toast({ title: "Success", description: "Credits updated." });
+        setIsDialogOpen(false);
+        await fetchData();
+      }
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const processExcel = (e: React.ChangeEvent<HTMLInputElement>, type: 'rapid' | 'numverify' | 'pv') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -198,28 +199,22 @@ export default function AdminPanel() {
         const workbook = read(dataStr, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
         const rows: any[][] = utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
-        
         const keys = rows.map(r => String(r[0] || '').trim()).filter(k => k.length > 5);
         
-        if (keys.length === 0) {
-          toast({ variant: "destructive", title: "Empty File", description: "No valid keys found in Column A." });
-          return;
-        }
+        if (keys.length === 0) return;
 
-        addLog(`[UPLOAD] Sending ${keys.length} ${type} keys to cluster...`);
-        const res = type === 'rapid' 
-          ? await uploadRapidKeys({ secret: ADMIN_SECRET, keys })
-          : await uploadNumverifyKeys({ secret: ADMIN_SECRET, keys });
+        addLog(`[UPLOAD] Sending ${keys.length} keys...`);
+        let res;
+        if (type === 'rapid') res = await uploadRapidKeys({ secret: ADMIN_SECRET, keys });
+        else if (type === 'numverify') res = await uploadNumverifyKeys({ secret: ADMIN_SECRET, keys });
+        else res = await uploadPhoneValidatorKeys({ secret: ADMIN_SECRET, keys });
         
-        if (res && res.success) {
-          addLog(`[SUCCESS] Cluster updated with new ${type} keys.`);
+        if (res.success) {
           toast({ title: "Keys Injected", description: res.message });
-          fetchData();
-        } else {
-          toast({ variant: "destructive", title: "Upload Failed", description: res?.message });
+          await fetchData();
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Error", description: "Failed to parse Excel file." });
+        toast({ variant: "destructive", title: "Error", description: "Failed to parse file." });
       }
     };
     reader.readAsBinaryString(file);
@@ -230,30 +225,17 @@ export default function AdminPanel() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="w-full max-w-md border-primary/20 bg-card/60 backdrop-blur-2xl shadow-2xl overflow-hidden rounded-3xl">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary to-accent"></div>
+        <Card className="w-full max-w-md border-primary/20 bg-card/60 backdrop-blur-2xl shadow-2xl rounded-3xl">
           <CardHeader className="text-center pt-10">
             <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6 border border-primary/20">
               <Lock className="h-8 w-8 text-primary" />
             </div>
-            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter text-foreground">Command Center</CardTitle>
+            <CardTitle className="text-3xl font-black italic uppercase tracking-tighter">Command Center</CardTitle>
           </CardHeader>
           <CardContent className="p-8">
             <form onSubmit={handleAdminLogin} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-primary">Master Secret</label>
-                <Input 
-                  type="password"
-                  placeholder="••••••••••••"
-                  value={secretInput}
-                  onChange={(e) => setSecretInput(e.target.value)}
-                  className="h-14 bg-black/40 border-white/10 rounded-xl font-black italic"
-                  autoFocus
-                />
-              </div>
-              <Button type="submit" className="w-full h-14 bg-primary text-white font-black italic rounded-xl">
-                AUTHORIZE <Unlock className="ml-2 h-5 w-5" />
-              </Button>
+              <Input type="password" placeholder="Master Secret" value={secretInput} onChange={(e) => setSecretInput(e.target.value)} className="h-14 bg-black/40 border-white/10 rounded-xl font-black italic" />
+              <Button type="submit" className="w-full h-14 bg-primary text-white font-black italic rounded-xl">AUTHORIZE <Unlock className="ml-2 h-5 w-5" /></Button>
             </form>
           </CardContent>
         </Card>
@@ -261,23 +243,18 @@ export default function AdminPanel() {
     );
   }
 
-  const userList = data?.users || data?.data?.users || [];
-  const filteredUsers = (Array.isArray(userList) ? userList : []).filter((u: any) => 
-    String(u?.email || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const userList = data?.users || [];
+  const filteredUsers = userList.filter((u: any) => String(u?.email || "").toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
-      <div className="container mx-auto max-w-7xl space-y-8 animate-in fade-in duration-500">
+      <div className="container mx-auto max-w-7xl space-y-8">
         <div className="flex items-center justify-between bg-card/50 p-8 rounded-3xl border border-white/5 backdrop-blur-sm">
           <div className="flex items-center gap-4">
             <Logo size={56} />
-            <div className="flex flex-col">
-              <h1 className="text-4xl font-black italic tracking-tighter text-foreground uppercase">Admin Terminal</h1>
-              <div className="text-[10px] font-black uppercase tracking-widest text-primary mt-1">System Orchestrator</div>
-            </div>
+            <h1 className="text-4xl font-black italic tracking-tighter uppercase">Admin Terminal</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex gap-3">
             <Button variant="outline" size="icon" onClick={() => fetchData()} disabled={loading} className="rounded-xl h-12 w-12">
               <RefreshCcw className={loading ? "animate-spin" : ""} />
             </Button>
@@ -289,149 +266,121 @@ export default function AdminPanel() {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <Card className="border-primary/20 bg-primary/5 p-6 rounded-3xl relative overflow-hidden">
-             <div className="absolute -right-4 -top-4 opacity-5"><Users size={100} /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest text-primary/70 mb-2">Total Users</p>
-             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (userList.length || 0)}</h3>
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Active Server</p>
+             <h3 className="text-4xl font-black italic text-primary">{serverInfo?.activeServer === 2 ? "PV V4" : "N-VERIFY"}</h3>
           </Card>
           <Card className="border-accent/20 bg-accent/5 p-6 rounded-3xl relative overflow-hidden">
-             <div className="absolute -right-4 -top-4 opacity-5"><Zap size={100} /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest text-accent/70 mb-2">Rapid Threads</p>
-             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (data?.totalRapid || 0)}</h3>
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">PV Keys</p>
+             <h3 className="text-4xl font-black italic">{serverInfo?.totalPhoneValidator || 0}</h3>
           </Card>
           <Card className="border-emerald-500/20 bg-emerald-500/5 p-6 rounded-3xl relative overflow-hidden">
-             <div className="absolute -right-4 -top-4 opacity-5"><Database size={100} /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500/70 mb-2">NumVerify Keys</p>
-             <h3 className="text-4xl font-black italic">{loading ? <Loader2 className="animate-spin h-6 w-6" /> : (data?.totalNumverify || 0)}</h3>
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Remaining Req (PV)</p>
+             <h3 className="text-4xl font-black italic">{serverInfo?.remainingRequests || 0}</h3>
           </Card>
-          <Card className="border-red-500/20 bg-red-500/5 p-6 rounded-3xl flex items-center justify-between relative overflow-hidden">
-             <div className="absolute -right-4 -top-4 opacity-5"><ShieldAlert size={100} /></div>
-             <div>
-               <p className="text-[10px] font-black uppercase tracking-widest text-red-500/70 mb-2">Status</p>
-               <h3 className="text-4xl font-black italic">{loading ? "BUSY" : "ACTIVE"}</h3>
-             </div>
-             <Button variant="destructive" size="icon" onClick={handleClearKeys} disabled={isClearing} className="h-12 w-12 rounded-xl z-10">
-               {isClearing ? <Loader2 className="animate-spin" /> : <Trash2 />}
-             </Button>
+          <Card className="border-red-500/20 bg-red-500/5 p-6 rounded-3xl relative overflow-hidden">
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Total Users</p>
+             <h3 className="text-4xl font-black italic">{userList.length}</h3>
           </Card>
         </div>
 
-        <Tabs defaultValue="dashboard">
+        <Tabs defaultValue="server">
           <TabsList className="bg-card/60 p-1 rounded-2xl h-14 mb-8">
-            <TabsTrigger value="dashboard" className="rounded-xl px-8 font-black uppercase italic">Tools</TabsTrigger>
-            <TabsTrigger value="users" className="rounded-xl px-8 font-black uppercase italic">Users ({filteredUsers.length})</TabsTrigger>
+            <TabsTrigger value="server" className="rounded-xl px-8 font-black uppercase italic text-xs">Server Control</TabsTrigger>
+            <TabsTrigger value="keys" className="rounded-xl px-8 font-black uppercase italic text-xs">API Keys</TabsTrigger>
+            <TabsTrigger value="users" className="rounded-xl px-8 font-black uppercase italic text-xs">Users</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="dashboard" className="space-y-6">
+          <TabsContent value="server" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
-                <h4 className="text-xl font-black italic mb-4">Upload RapidKeys</h4>
-                <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
-                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Permanent keys for concurrent threads.</p>
+              <Card className="p-8 border-white/5 bg-card/40 rounded-3xl space-y-6">
+                <h4 className="text-xl font-black italic uppercase">Server Orchestration</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <Button 
+                    onClick={() => handleSetServer(1)} 
+                    disabled={isSwitchingServer || serverInfo?.activeServer === 1}
+                    className={cn("h-20 rounded-2xl font-black italic text-lg", serverInfo?.activeServer === 1 ? "bg-primary" : "bg-muted/20 border-2 border-primary/20")}
+                  >
+                    SERVER 1 (NUMVERIFY)
+                  </Button>
+                  <Button 
+                    onClick={() => handleSetServer(2)} 
+                    disabled={isSwitchingServer || serverInfo?.activeServer === 2}
+                    className={cn("h-20 rounded-2xl font-black italic text-lg", serverInfo?.activeServer === 2 ? "bg-accent" : "bg-muted/20 border-2 border-accent/20")}
+                  >
+                    SERVER 2 (PV V4)
+                  </Button>
+                </div>
               </Card>
-              <Card className="p-8 border-white/5 bg-card/40 rounded-3xl">
-                <h4 className="text-xl font-black italic mb-4">Upload Numverify</h4>
-                <Input type="file" onChange={(e) => processExcel(e, 'numverify')} className="bg-black/20 border-white/10 h-16 rounded-xl py-4" accept=".xlsx,.xls" />
-                <p className="text-[9px] mt-4 font-bold uppercase opacity-50">Temporary keys with 100 hit limit.</p>
+
+              <Card className="p-8 border-white/5 bg-card/40 rounded-3xl space-y-6">
+                <h4 className="text-xl font-black italic uppercase">Destructive Actions</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <Button variant="destructive" onClick={handleClearPVKeys} disabled={isClearing} className="h-20 rounded-2xl font-black italic uppercase">
+                    Clear PV Keys
+                  </Button>
+                  <Button variant="destructive" onClick={async () => { if(confirm("Clear Numverify/Rapid keys?")) await clearAdminKeys({secret: ADMIN_SECRET}); fetchData(); }} className="h-20 rounded-2xl font-black italic uppercase">
+                    Clear S1 Keys
+                  </Button>
+                </div>
               </Card>
             </div>
+          </TabsContent>
 
-            <Card className="border-white/5 bg-black/40 rounded-2xl overflow-hidden shadow-xl">
-               <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-2">
-                 <Terminal className="h-4 w-4 text-primary" />
-                 <span className="text-[10px] font-black uppercase tracking-widest">Global Event Stream</span>
-               </div>
-               <div className="p-4 h-64 overflow-y-auto font-code text-[11px] text-green-400 space-y-1 bg-black/80">
-                 {logs.length === 0 ? <div>[IDLE] Awaiting connection...</div> : logs.map((log, i) => <div key={i}>{log}</div>)}
-               </div>
+          <TabsContent value="keys" className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="p-6 border-white/5 bg-card/40 rounded-3xl space-y-4">
+              <h4 className="font-black italic uppercase text-xs text-primary">Phone Validator Keys</h4>
+              <Input type="file" onChange={(e) => processExcel(e, 'pv')} className="h-12 bg-black/20 border-white/10 rounded-xl" accept=".xlsx,.xls" />
+              <p className="text-[9px] font-bold opacity-50 uppercase">Auto-rotates in Server 2. Max 125 req/key.</p>
+            </Card>
+            <Card className="p-6 border-white/5 bg-card/40 rounded-3xl space-y-4">
+              <h4 className="font-black italic uppercase text-xs text-primary">Numverify Keys</h4>
+              <Input type="file" onChange={(e) => processExcel(e, 'numverify')} className="h-12 bg-black/20 border-white/10 rounded-xl" accept=".xlsx,.xls" />
+              <p className="text-[9px] font-bold opacity-50 uppercase">Standard keys for Server 1.</p>
+            </Card>
+            <Card className="p-6 border-white/5 bg-card/40 rounded-3xl space-y-4">
+              <h4 className="font-black italic uppercase text-xs text-primary">Rapid Proxy Keys</h4>
+              <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="h-12 bg-black/20 border-white/10 rounded-xl" accept=".xlsx,.xls" />
+              <p className="text-[9px] font-bold opacity-50 uppercase">Required for proxy rotation in S1.</p>
             </Card>
           </TabsContent>
 
           <TabsContent value="users">
              <Card className="border-white/5 bg-card/40 rounded-3xl overflow-hidden shadow-2xl">
                 <div className="p-6 border-b border-white/5">
-                  <div className="relative max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Search users..." 
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="pl-10 bg-black/20 border-white/10 h-12 rounded-xl"
-                    />
-                  </div>
+                  <Input placeholder="Search users..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm bg-black/20 border-white/10 h-12 rounded-xl" />
                 </div>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader className="bg-muted/10">
-                      <TableRow className="border-white/5">
-                        <TableHead className="px-8 py-6 uppercase font-black text-[10px]">Email</TableHead>
-                        <TableHead className="uppercase font-black text-[10px]">Credits</TableHead>
-                        <TableHead className="text-right px-8 uppercase font-black text-[10px]">Actions</TableHead>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="px-8 text-[10px] font-black uppercase">Email</TableHead>
+                      <TableHead className="text-[10px] font-black uppercase">Credits</TableHead>
+                      <TableHead className="text-right px-8 text-[10px] font-black uppercase">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredUsers.map((user: any) => (
+                      <TableRow key={user._id || user.uid} className="border-white/5">
+                        <TableCell className="px-8 font-black italic">{user.email}</TableCell>
+                        <TableCell className="font-black italic text-primary">{user.credits}</TableCell>
+                        <TableCell className="text-right px-8">
+                          <Button onClick={() => openEditDialog(user)} className="bg-primary rounded-xl font-black italic h-10 px-6">EDIT</Button>
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading ? (
-                        <TableRow><TableCell colSpan={3} className="text-center py-10"><Loader2 className="animate-spin h-8 w-8 mx-auto opacity-20" /></TableCell></TableRow>
-                      ) : filteredUsers.length === 0 ? (
-                        <TableRow><TableCell colSpan={3} className="text-center py-10 opacity-20 font-bold">NO USERS FOUND</TableCell></TableRow>
-                      ) : filteredUsers.map((user: any) => {
-                        const targetUserId = user._id || user.uid || user.id;
-                        return (
-                          <TableRow key={targetUserId} className="border-white/5 hover:bg-white/5">
-                            <TableCell className="px-8 font-black italic text-lg">{user.email}</TableCell>
-                            <TableCell className="font-black italic text-lg text-primary">{user.credits}</TableCell>
-                            <TableCell className="text-right px-8">
-                              <Button 
-                                onClick={() => openEditDialog(user)} 
-                                className="bg-primary rounded-xl font-black italic h-10 px-6"
-                                disabled={isUpdating === targetUserId}
-                              >
-                                {isUpdating === targetUserId ? <Loader2 className="animate-spin" /> : "EDIT"}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
+                    ))}
+                  </TableBody>
+                </Table>
              </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Edit Credits Dialog */}
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md">
-            <DialogHeader className="space-y-3">
-              <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
-                <Edit className="h-6 w-6" />
-              </div>
-              <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">Update Credits</DialogTitle>
-              <DialogDescription className="text-sm font-bold text-muted-foreground uppercase tracking-wide">
-                Modify credit balance for <span className="text-primary">{editingUser?.email}</span>
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-6 space-y-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-primary/70">New Balance</label>
-                <Input 
-                  type="number" 
-                  value={newCreditAmount} 
-                  onChange={(e) => setNewCreditAmount(e.target.value)}
-                  className="h-14 bg-black/40 border-white/10 rounded-xl font-black italic text-xl text-primary"
-                  placeholder="Enter amount"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <DialogFooter className="gap-3 sm:gap-0">
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)} className="h-12 rounded-xl font-bold uppercase italic border-white/10">Cancel</Button>
-              <Button onClick={handleUpdateCredits} disabled={!!isUpdating} className="h-12 bg-primary text-white font-black italic rounded-xl flex items-center gap-2">
-                {isUpdating ? <Loader2 className="animate-spin h-4 w-4" /> : <Save className="h-4 w-4" />} SAVE CHANGES
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md">
+          <DialogHeader><DialogTitle className="text-2xl font-black italic uppercase">Update Credits</DialogTitle></DialogHeader>
+          <div className="py-6"><Input type="number" value={newCreditAmount} onChange={(e) => setNewCreditAmount(e.target.value)} className="h-14 bg-black/40 border-white/10 rounded-xl font-black italic text-xl" /></div>
+          <DialogFooter><Button onClick={handleUpdateCredits} disabled={!!isUpdating} className="h-12 bg-primary text-white font-black italic rounded-xl flex items-center gap-2">SAVE CHANGES</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

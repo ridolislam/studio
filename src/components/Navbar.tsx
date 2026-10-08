@@ -1,9 +1,8 @@
-
 "use client";
 
 import Link from "next/link";
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import Logo from "./Logo";
@@ -14,6 +13,7 @@ export default function Navbar() {
 
   const navLinks = [
     { name: "Pricing", href: "/pricing" },
+    { name: "Developer", href: "/developer" },
     { name: "About", href: "/about" },
     { name: "Contact", href: whatsappLink, isExternal: true },
   ];
@@ -21,7 +21,6 @@ export default function Navbar() {
   return (
     <nav className="sticky top-0 z-50 w-full bg-background/80 backdrop-blur-md border-b border-white/5">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-        {/* Logo */}
         <Link href="/" className="flex items-center gap-2 group">
           <div className="relative group-hover:scale-110 transition-all duration-300">
              <Logo size={42} />
@@ -29,7 +28,6 @@ export default function Navbar() {
           <span className="text-2xl font-black tracking-tighter italic text-3d">numcheckr</span>
         </Link>
 
-        {/* Desktop Nav */}
         <div className="hidden md:flex items-center gap-8">
           <div className="flex items-center gap-6">
             {navLinks.map((link) => (
@@ -61,7 +59,6 @@ export default function Navbar() {
           </div>
         </div>
 
-        {/* Mobile Menu Toggle */}
         <button 
           className="md:hidden p-2 text-muted-foreground hover:text-primary transition-colors"
           onClick={() => setIsOpen(!isOpen)}
@@ -70,7 +67,6 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile Nav Overlay */}
       <div className={cn(
         "fixed inset-0 top-16 bg-background z-40 md:hidden transition-all duration-300 ease-in-out transform",
         isOpen ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"

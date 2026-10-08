@@ -15,7 +15,6 @@ async function safeJson(response: Response) {
       return data;
     }
     const text = await response.text();
-    // Render often returns HTML when the server is starting or has an error
     if (text.toLowerCase().includes('waking up') || text.toLowerCase().includes('starting')) {
       return { success: false, message: 'Server is waking up. Please wait 45-60 seconds.', error: 'WAKING_UP' };
     }
@@ -38,8 +37,7 @@ export async function loginUser(payload: { email: string; password?: string }) {
     });
     return await safeJson(response);
   } catch (error) {
-    console.error("Login fetch error:", error);
-    return { success: false, message: 'Could not connect to the backend server. It might be waking up or offline.' };
+    return { success: false, message: 'Could not connect to the backend server.' };
   }
 }
 
@@ -126,6 +124,71 @@ export async function getFullDashboardData(secret: string) {
   }
 }
 
+export async function getServerInfo(secret: string) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/server-info`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({ secret }),
+      cache: 'no-store'
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Failed to fetch server info' };
+  }
+}
+
+export async function setServer(payload: { secret: string, server: number }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/set-server`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Server switch failed' };
+  }
+}
+
+export async function uploadPhoneValidatorKeys(payload: { secret: string, keys: string[] }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/upload-phonevalidator`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Key upload failed' };
+  }
+}
+
+export async function clearPhoneValidatorKeys(payload: { secret: string }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/admin/clear-phonevalidator-keys`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload),
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Wipe failed' };
+  }
+}
+
 export async function uploadRapidKeys(payload: { secret: string, keys: string[] }) {
   try {
     const response = await fetch(`${API_BASE}/api/admin/upload-rapid`, {
@@ -171,8 +234,7 @@ export async function updateAdminUser(payload: { secret: string, userId: string,
     });
     return await safeJson(response);
   } catch (error) {
-    console.error("Update Admin User error:", error);
-    return { success: false, message: 'Update request failed due to connection error.' };
+    return { success: false, message: 'Update request failed.' };
   }
 }
 
