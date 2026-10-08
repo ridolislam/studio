@@ -48,7 +48,8 @@ export async function getBatchInfo() {
       headers: { 'Accept': 'application/json' },
       cache: 'no-store',
     });
-    return await safeJson(response);
+    const res = await safeJson(response);
+    return res.success ? res : { success: false, recommendedBatchSize: 10 };
   } catch (error) {
     return { success: false, recommendedBatchSize: 10 };
   }
@@ -130,7 +131,8 @@ export async function getServerInfo(secret: string) {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'admin-secret': secret
       },
       body: JSON.stringify({ secret }),
       cache: 'no-store'
