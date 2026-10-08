@@ -25,7 +25,9 @@ import {
   Activity,
   ShieldCheck,
   Globe,
-  HardDrive
+  HardDrive,
+  Calendar,
+  ShieldClose
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -73,6 +75,8 @@ export default function AdminPanel() {
   const [editingUser, setEditingUser] = useState<any>(null);
   const [newCreditAmount, setNewCreditAmount] = useState<string>("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSwitchDialogOpen, setIsSwitchDialogOpen] = useState(false);
+  const [pendingServerSwitch, setPendingServerSwitch] = useState<number | null>(null);
 
   const [logs, setLogs] = useState<string[]>([
     "[SYSTEM] Admin Terminal Initialized.",
@@ -99,7 +103,7 @@ export default function AdminPanel() {
 
   const fetchData = async (secret: string = ADMIN_SECRET) => {
     setLoading(true);
-    addLog(`[SYSTEM] Syncing command center...`);
+    addLog(`[SYSTEM] Syncing global orchestrator...`);
     try {
       const [dashRes, serverRes] = await Promise.all([
         getFullDashboardData(secret),
@@ -114,7 +118,7 @@ export default function AdminPanel() {
 
       if (serverRes && serverRes.success) {
         setServerInfo(serverRes);
-        addLog(`[STATS] Active Engine: Server ${serverRes.activeServer === 2 ? '2 (PV v4)' : '1 (Standard)'}`);
+        addLog(`[STATS] Global Engine: Server ${serverRes.activeServer === 2 ? '2 (PV v4)' : '1 (Standard)'}`);
       } else {
         addLog(`[ERROR] Server stats sync failed: ${serverRes.message || 'Unknown error'}`);
       }
@@ -137,16 +141,26 @@ export default function AdminPanel() {
     }
   };
 
-  const handleSetServer = async (newServer: number) => {
-    if (!confirm(`Switch to Server ${newServer}?`)) return;
+  const handleSetServerRequest = (newServer: number) => {
+    setPendingServerSwitch(newServer);
+    setIsSwitchDialogOpen(true);
+  };
+
+  const executeServerSwitch = async () => {
+    if (pendingServerSwitch === null) return;
+    
     setIsSwitchingServer(true);
-    addLog(`[SYSTEM] Switching active engine to Server ${newServer}...`);
+    addLog(`[SYSTEM] Switching global engine to Core ${pendingServerSwitch}...`);
     try {
-      const res = await setServer({ secret: ADMIN_SECRET, server: newServer });
+      const res = await setServer({ secret: ADMIN_SECRET, server: pendingServerSwitch });
       if (res.success) {
         toast({ title: "Engine Switched", description: res.message });
+        if (res.warning) {
+          toast({ variant: "destructive", title: "System Warning", description: res.warning });
+          addLog(`[WARN] ${res.warning}`);
+        }
         await fetchData();
-        addLog(`[SUCCESS] ${res.message}`);
+        addLog(`[SUCCESS] Global engine changed to ${res.activeServer}`);
       } else {
         toast({ variant: "destructive", title: "Switch Failed", description: res.message });
         addLog(`[ERROR] ${res.message}`);
@@ -156,6 +170,8 @@ export default function AdminPanel() {
       addLog(`[ERROR] Server communication failure during engine switch.`);
     } finally {
       setIsSwitchingServer(false);
+      setIsSwitchDialogOpen(false);
+      setPendingServerSwitch(null);
     }
   };
 
@@ -227,7 +243,6 @@ export default function AdminPanel() {
         const rows: any[][] = utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
         const rawKeys = rows.map(r => String(r[0] || '').trim()).filter(k => k.length > 5);
         
-        // Remove duplicates on client side for parsing info
         const uniqueKeys = Array.from(new Set(rawKeys));
 
         if (uniqueKeys.length === 0) {
@@ -255,7 +270,6 @@ export default function AdminPanel() {
       }
     };
     reader.readAsBinaryString(file);
-    // Clear input
     e.target.value = '';
   };
 
@@ -300,15 +314,15 @@ export default function AdminPanel() {
             <Logo size={64} className="drop-shadow-[0_0_20px_rgba(113,85,255,0.3)]" />
             <div className="flex flex-col">
               <h1 className="text-4xl font-black italic tracking-tighter uppercase text-3d leading-none">Admin Terminal</h1>
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-primary mt-2">v4.0.0 Stable Build</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-primary mt-2">v4.5.0 Global Core</span>
             </div>
           </div>
           <div className="flex items-center gap-4">
              <div className="flex flex-col items-end mr-4">
-               <span className="text-[10px] font-black uppercase opacity-50">System Health</span>
+               <span className="text-[10px] font-black uppercase opacity-50">System Status</span>
                <div className="flex items-center gap-2">
                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                 <span className="text-xs font-black italic uppercase">Connected</span>
+                 <span className="text-xs font-black italic uppercase">Synchronized</span>
                </div>
              </div>
              <Button variant="outline" size="icon" onClick={() => fetchData()} disabled={loading} className="rounded-xl h-14 w-14 border-white/10 hover:bg-primary/5 transition-all">
@@ -321,37 +335,57 @@ export default function AdminPanel() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
-          <Card className="border-primary/20 bg-primary/5 p-6 rounded-[1.5rem] relative overflow-hidden group">
-             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Server className="h-24 w-24" /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Active Core</p>
-             <h3 className="text-4xl font-black italic text-primary">{serverInfo?.activeServer === 2 ? "PV v4 Engine" : "Standard V1"}</h3>
-          </Card>
-          <Card className="border-accent/20 bg-accent/5 p-6 rounded-[1.5rem] relative overflow-hidden group">
-             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Key className="h-24 w-24" /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">PV Capacity</p>
-             <h3 className="text-4xl font-black italic">{serverInfo?.totalPhoneValidator || 0} <span className="text-xs opacity-50 uppercase">Keys</span></h3>
-          </Card>
           <Card className={cn(
             "p-6 rounded-[1.5rem] relative overflow-hidden group transition-colors",
-            (serverInfo?.remainingRequests || 0) < 500 ? "bg-amber-500/5 border-amber-500/20" : "bg-emerald-500/5 border-emerald-500/20"
+            serverInfo?.activeServer === 2 ? "bg-accent/5 border-accent/20" : "bg-primary/5 border-primary/20"
           )}>
-             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Zap className="h-24 w-24" /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Remaining Req (PV)</p>
-             <h3 className={cn(
-               "text-4xl font-black italic",
-               (serverInfo?.remainingRequests || 0) < 500 ? "text-amber-500" : "text-emerald-500"
-             )}>{serverInfo?.remainingRequests || 0}</h3>
+             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Server className="h-24 w-24" /></div>
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Active Global Engine</p>
+             <h3 className={cn("text-3xl font-black italic uppercase", serverInfo?.activeServer === 2 ? "text-accent" : "text-primary")}>
+               {serverInfo?.activeServer === 2 ? "Core 2 (PV v4)" : "Core 1 (Standard)"}
+             </h3>
           </Card>
           <Card className="border-white/10 bg-card/60 p-6 rounded-[1.5rem] relative overflow-hidden group">
-             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Users className="h-24 w-24" /></div>
-             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Total Database</p>
-             <h3 className="text-4xl font-black italic">{userList.length} <span className="text-xs opacity-50 uppercase">Users</span></h3>
+             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Calendar className="h-24 w-24" /></div>
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Last Configuration</p>
+             <h3 className="text-xl font-black italic">
+               {serverInfo?.updatedAt ? new Date(serverInfo.updatedAt).toLocaleDateString() : "Initial Setup"}
+             </h3>
           </Card>
+          <Card className="border-white/10 bg-card/60 p-6 rounded-[1.5rem] relative overflow-hidden group">
+             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Key className="h-24 w-24" /></div>
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">PV Keys (Active)</p>
+             <h3 className="text-4xl font-black italic">{serverInfo?.totalPhoneValidator || 0}</h3>
+          </Card>
+          <Card className="border-white/10 bg-card/60 p-6 rounded-[1.5rem] relative overflow-hidden group">
+             <div className="absolute -right-4 -top-4 opacity-5 group-hover:opacity-10 transition-opacity"><Database className="h-24 w-24" /></div>
+             <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-2">Remaining PV Req</p>
+             <h3 className={cn(
+               "text-4xl font-black italic",
+               (serverInfo?.remainingRequests || 0) < 500 ? "text-amber-500" : "text-green-500"
+             )}>{serverInfo?.remainingRequests || 0}</h3>
+          </Card>
+        </div>
+
+        {/* Global Warnings */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          {serverInfo?.activeServer === 2 && serverInfo?.totalPhoneValidator === 0 && (
+            <div className="bg-destructive/10 border border-destructive/20 p-4 rounded-2xl flex items-center gap-4 text-destructive animate-pulse">
+              <ShieldAlert className="h-6 w-6" />
+              <p className="font-black italic uppercase text-xs">CRITICAL: Server 2 is active but has zero keys. Validation will fail.</p>
+            </div>
+          )}
+          {serverInfo?.activeServer === 1 && (serverInfo?.totalNumverify === 0 || serverInfo?.totalRapid === 0) && (
+            <div className="bg-destructive/10 border border-destructive/20 p-4 rounded-2xl flex items-center gap-4 text-destructive animate-pulse">
+              <ShieldAlert className="h-6 w-6" />
+              <p className="font-black italic uppercase text-xs">CRITICAL: Server 1 is active but lacks Standard/Proxy keys.</p>
+            </div>
+          )}
         </div>
 
         <Tabs defaultValue="server" className="mt-8">
           <TabsList className="bg-card/60 p-1 rounded-2xl h-16 mb-8 w-full md:w-fit border border-white/5">
-            <TabsTrigger value="server" className="rounded-xl px-10 font-black uppercase italic text-xs h-full data-[state=active]:bg-primary data-[state=active]:text-white">Server Orchestration</TabsTrigger>
+            <TabsTrigger value="server" className="rounded-xl px-10 font-black uppercase italic text-xs h-full data-[state=active]:bg-primary data-[state=active]:text-white">Global Controls</TabsTrigger>
             <TabsTrigger value="keys" className="rounded-xl px-10 font-black uppercase italic text-xs h-full data-[state=active]:bg-primary data-[state=active]:text-white">API Injection</TabsTrigger>
             <TabsTrigger value="users" className="rounded-xl px-10 font-black uppercase italic text-xs h-full data-[state=active]:bg-primary data-[state=active]:text-white">User Intelligence</TabsTrigger>
             <TabsTrigger value="logs" className="rounded-xl px-10 font-black uppercase italic text-xs h-full data-[state=active]:bg-primary data-[state=active]:text-white">Global Events</TabsTrigger>
@@ -362,40 +396,34 @@ export default function AdminPanel() {
               <Card className="p-8 border-white/5 bg-card/40 rounded-[2rem] space-y-8 shadow-xl">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-primary/10 rounded-lg"><Activity className="h-5 w-5 text-primary" /></div>
-                  <h4 className="text-xl font-black italic uppercase tracking-tighter">Active Engine Control</h4>
+                  <h4 className="text-xl font-black italic uppercase tracking-tighter">Global Engine Switch</h4>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Button 
-                    onClick={() => handleSetServer(1)} 
+                    onClick={() => handleSetServerRequest(1)} 
                     disabled={isSwitchingServer || serverInfo?.activeServer === 1}
                     className={cn(
                       "h-24 rounded-2xl font-black italic text-lg transition-all",
-                      serverInfo?.activeServer === 1 ? "bg-primary text-white shadow-lg shadow-primary/20" : "bg-muted/10 border-2 border-primary/20 hover:bg-primary/5"
+                      serverInfo?.activeServer === 1 ? "bg-primary text-white shadow-lg" : "bg-muted/10 border-2 border-primary/20 hover:bg-primary/5"
                     )}
                   >
-                    <div className="flex flex-col items-center">
-                       <span>SERVER 1</span>
-                       <span className="text-[10px] uppercase font-bold opacity-60">Numverify Core</span>
-                    </div>
+                    CORE 1 (Standard)
                   </Button>
                   <Button 
-                    onClick={() => handleSetServer(2)} 
+                    onClick={() => handleSetServerRequest(2)} 
                     disabled={isSwitchingServer || serverInfo?.activeServer === 2}
                     className={cn(
                       "h-24 rounded-2xl font-black italic text-lg transition-all",
-                      serverInfo?.activeServer === 2 ? "bg-accent text-white shadow-lg shadow-accent/20" : "bg-muted/10 border-2 border-accent/20 hover:bg-accent/5"
+                      serverInfo?.activeServer === 2 ? "bg-accent text-white shadow-lg" : "bg-muted/10 border-2 border-accent/20 hover:bg-accent/5"
                     )}
                   >
-                    <div className="flex flex-col items-center">
-                       <span>SERVER 2</span>
-                       <span className="text-[10px] uppercase font-bold opacity-60">Phone Validator v4</span>
-                    </div>
+                    CORE 2 (PV v4)
                   </Button>
                 </div>
                 <div className="bg-amber-500/5 p-4 rounded-xl border border-amber-500/10 flex items-start gap-3">
                    <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
                    <p className="text-[10px] font-bold text-amber-500/80 uppercase leading-relaxed">
-                     Changing the global server will affect all validation tasks immediately. Ensure keys are injected before switching to Server 2.
+                     Switching the engine applies immediately to all user accounts. In-progress streams will finish on their starting core.
                    </p>
                 </div>
               </Card>
@@ -403,14 +431,14 @@ export default function AdminPanel() {
               <Card className="p-8 border-white/5 bg-card/40 rounded-[2rem] space-y-8 shadow-xl">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-destructive/10 rounded-lg"><Trash2 className="h-5 w-5 text-destructive" /></div>
-                  <h4 className="text-xl font-black italic uppercase tracking-tighter">Destructive Wipe</h4>
+                  <h4 className="text-xl font-black italic uppercase tracking-tighter">Capacity Management</h4>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Button variant="destructive" onClick={handleClearPVKeys} disabled={isClearing} className="h-20 rounded-2xl font-black italic uppercase shadow-lg shadow-destructive/10">
-                    Wipe Server 2 Keys
+                  <Button variant="destructive" onClick={handleClearPVKeys} disabled={isClearing} className="h-20 rounded-2xl font-black italic uppercase">
+                    Wipe Core 2 Keys
                   </Button>
-                  <Button variant="destructive" onClick={async () => { if(confirm("Clear Numverify/Rapid keys?")) await clearAdminKeys({secret: ADMIN_SECRET}); fetchData(); }} className="h-20 rounded-2xl font-black italic uppercase shadow-lg shadow-destructive/10">
-                    Wipe Server 1 Keys
+                  <Button variant="destructive" onClick={async () => { if(confirm("Clear Core 1 keys?")) await clearAdminKeys({secret: ADMIN_SECRET}); fetchData(); }} className="h-20 rounded-2xl font-black italic uppercase">
+                    Wipe Core 1 Keys
                   </Button>
                 </div>
                 <p className="text-[9px] font-black italic text-center opacity-30 uppercase tracking-widest">Authorized deletion only • Permanent action</p>
@@ -420,31 +448,31 @@ export default function AdminPanel() {
 
           <TabsContent value="keys" className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <Card className="p-8 border-white/5 bg-card/40 rounded-[2rem] space-y-6 shadow-xl relative overflow-hidden group">
-              <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
+              <div className="absolute top-0 left-0 w-full h-1 bg-accent" />
               <div className="flex items-center justify-between">
-                <h4 className="font-black italic uppercase text-xs text-primary tracking-widest">Server 2 (PV) Injection</h4>
-                <HardDrive className="h-4 w-4 opacity-20 group-hover:opacity-40 transition-opacity" />
+                <h4 className="font-black italic uppercase text-xs text-accent tracking-widest">Core 2 (PV) Injection</h4>
+                <HardDrive className="h-4 w-4 opacity-20" />
               </div>
               <div className="space-y-4">
-                <Input type="file" onChange={(e) => processExcel(e, 'pv')} className="h-14 bg-black/20 border-white/10 rounded-xl cursor-pointer hover:border-primary/50 transition-colors" accept=".xlsx,.xls" />
-                <div className="p-4 bg-primary/5 rounded-xl border border-primary/10">
-                  <p className="text-[10px] font-black text-primary uppercase mb-1">Architecture Details</p>
-                  <p className="text-[9px] font-bold opacity-60 uppercase leading-relaxed">Parallel rotation supported. Auto-deletion at 125 requests. Excel columns: [Key].</p>
+                <Input type="file" onChange={(e) => processExcel(e, 'pv')} className="h-14 bg-black/20 border-white/10 rounded-xl cursor-pointer" accept=".xlsx,.xls" />
+                <div className="p-4 bg-accent/5 rounded-xl border border-accent/10">
+                  <p className="text-[10px] font-black text-accent uppercase mb-1">Architecture Details</p>
+                  <p className="text-[9px] font-bold opacity-60 uppercase leading-relaxed">Rotation supported. Keys auto-delete after 125 requests.</p>
                 </div>
               </div>
             </Card>
 
             <Card className="p-8 border-white/5 bg-card/40 rounded-[2rem] space-y-6 shadow-xl relative overflow-hidden group">
-              <div className="absolute top-0 left-0 w-full h-1 bg-accent" />
+              <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
               <div className="flex items-center justify-between">
-                <h4 className="font-black italic uppercase text-xs text-accent tracking-widest">Numverify Standard Injection</h4>
-                <Database className="h-4 w-4 opacity-20 group-hover:opacity-40 transition-opacity" />
+                <h4 className="font-black italic uppercase text-xs text-primary tracking-widest">Numverify Injection</h4>
+                <Database className="h-4 w-4 opacity-20" />
               </div>
               <div className="space-y-4">
-                <Input type="file" onChange={(e) => processExcel(e, 'numverify')} className="h-14 bg-black/20 border-white/10 rounded-xl cursor-pointer hover:border-accent/50 transition-colors" accept=".xlsx,.xls" />
-                <div className="p-4 bg-accent/5 rounded-xl border border-accent/10">
-                  <p className="text-[10px] font-black text-accent uppercase mb-1">Architecture Details</p>
-                  <p className="text-[9px] font-bold opacity-60 uppercase leading-relaxed">Server 1 primary keys. Unlimited lifetime unless deactivated by provider.</p>
+                <Input type="file" onChange={(e) => processExcel(e, 'numverify')} className="h-14 bg-black/20 border-white/10 rounded-xl cursor-pointer" accept=".xlsx,.xls" />
+                <div className="p-4 bg-primary/5 rounded-xl border border-primary/10">
+                  <p className="text-[10px] font-black text-primary uppercase mb-1">Architecture Details</p>
+                  <p className="text-[9px] font-bold opacity-60 uppercase leading-relaxed">Core 1 primary keys. Unlimited lifetime unless deactivated.</p>
                 </div>
               </div>
             </Card>
@@ -453,13 +481,13 @@ export default function AdminPanel() {
               <div className="absolute top-0 left-0 w-full h-1 bg-white/10" />
               <div className="flex items-center justify-between">
                 <h4 className="font-black italic uppercase text-xs opacity-50 tracking-widest">Rapid Proxy Injection</h4>
-                <Globe className="h-4 w-4 opacity-20 group-hover:opacity-40 transition-opacity" />
+                <Globe className="h-4 w-4 opacity-20" />
               </div>
               <div className="space-y-4">
-                <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="h-14 bg-black/20 border-white/10 rounded-xl cursor-pointer hover:border-white/20 transition-colors" accept=".xlsx,.xls" />
+                <Input type="file" onChange={(e) => processExcel(e, 'rapid')} className="h-14 bg-black/20 border-white/10 rounded-xl cursor-pointer" accept=".xlsx,.xls" />
                 <div className="p-4 bg-white/5 rounded-xl border border-white/10">
                   <p className="text-[10px] font-black opacity-50 uppercase mb-1">Architecture Details</p>
-                  <p className="text-[9px] font-bold opacity-40 uppercase leading-relaxed">Used for proxy rotation in Server 1 to bypass vendor rate limits.</p>
+                  <p className="text-[9px] font-bold opacity-40 uppercase leading-relaxed">Used for proxy rotation in Core 1 to bypass rate limits.</p>
                 </div>
               </div>
             </Card>
@@ -486,7 +514,7 @@ export default function AdminPanel() {
                     </TableHeader>
                     <TableBody>
                       {filteredUsers.length === 0 ? (
-                        <TableRow><TableCell colSpan={4} className="h-40 text-center opacity-20 italic font-black uppercase tracking-widest">No matching users in database</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={4} className="h-40 text-center opacity-20 italic font-black uppercase tracking-widest">No matching users</TableCell></TableRow>
                       ) : (
                         filteredUsers.map((user: any) => (
                           <TableRow key={user._id || user.uid} className="h-24 border-white/5 hover:bg-white/5 transition-colors group">
@@ -546,6 +574,29 @@ export default function AdminPanel() {
         </Tabs>
       </div>
 
+      {/* Switch Confirmation Dialog */}
+      <Dialog open={isSwitchDialogOpen} onOpenChange={setIsSwitchDialogOpen}>
+        <DialogContent className="border-primary/20 bg-card rounded-[2rem] max-w-md shadow-2xl">
+          <DialogHeader className="text-center pt-6">
+            <div className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4">
+              <Server className="h-8 w-8 text-primary" />
+            </div>
+            <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">Confirm Engine Switch</DialogTitle>
+            <DialogDescription className="font-bold uppercase text-[10px] tracking-widest mt-2">
+              Switching to CORE {pendingServerSwitch}? This applies immediately to ALL users.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center pb-6">
+            <div className="grid grid-cols-2 gap-4 w-full">
+               <Button variant="outline" onClick={() => setIsSwitchDialogOpen(false)} className="rounded-xl h-14 font-black italic">CANCEL</Button>
+               <Button onClick={executeServerSwitch} disabled={isSwitchingServer} className="bg-primary rounded-xl h-14 font-black italic">
+                 {isSwitchingServer ? <Loader2 className="animate-spin" /> : "CONFIRM SWITCH"}
+               </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="border-primary/20 bg-card rounded-[2rem] max-w-md shadow-2xl p-0 overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
@@ -567,7 +618,6 @@ export default function AdminPanel() {
                  onChange={(e) => setNewCreditAmount(e.target.value)} 
                  className="h-20 bg-black/40 border-white/10 rounded-2xl font-black italic text-4xl text-center text-primary shadow-inner" 
                />
-               <p className="text-[9px] font-bold text-center opacity-30 uppercase">Values reflect immediately in user wallet</p>
             </div>
             <DialogFooter className="sm:justify-center">
               <Button onClick={handleUpdateCredits} disabled={!!isUpdating} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all">

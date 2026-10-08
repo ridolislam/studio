@@ -41,6 +41,19 @@ export async function loginUser(payload: { email: string; password?: string }) {
   }
 }
 
+export async function getActiveServer() {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/active-server`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, error: 'Could not connect to the backend server.' };
+  }
+}
+
 export async function getBatchInfo() {
   try {
     const response = await fetch(`${API_BASE}/api/user/batch-info`, {
@@ -49,9 +62,9 @@ export async function getBatchInfo() {
       cache: 'no-store',
     });
     const res = await safeJson(response);
-    return res.success ? res : { success: false, recommendedBatchSize: 10 };
+    return res.success ? res : { success: false, recommendedBatchSize: 10, keysAvailable: false };
   } catch (error) {
-    return { success: false, recommendedBatchSize: 10 };
+    return { success: false, recommendedBatchSize: 10, keysAvailable: false };
   }
 }
 
