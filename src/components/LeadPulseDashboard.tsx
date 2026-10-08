@@ -113,10 +113,13 @@ export default function LeadPulseDashboard() {
       setIsSyncing(true);
       const res = await syncUserProfile(email);
       if (res.success) {
-        setCredits(res.credits);
-        const updatedUser = { ...userData, credits: res.credits };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
+        // Defer state update to prevent hydration/render clash
+        setTimeout(() => {
+          setCredits(res.credits);
+          const updatedUser = { ...userData, credits: res.credits };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
+        }, 0);
       }
     } finally {
       setIsSyncing(false);
@@ -260,11 +263,13 @@ Outside US: ${res.phonevalidator.outside_us}
 
             if (!Array.isArray(data)) {
               if (data.status === "DONE") {
+                reader.cancel();
                 setIsProcessing(false);
                 fetchAndSyncProfile();
                 return;
               }
               if (data.status === "NO_CREDITS") {
+                reader.cancel();
                 setShowCreditModal({ 
                   open: true, 
                   available: data.available || credits, 
@@ -670,14 +675,16 @@ Outside US: ${res.phonevalidator.outside_us}
               <ShieldAlert className="h-10 w-10 text-destructive" />
             </div>
             <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Insufficient Credits</DialogTitle>
-            <DialogDescription className="font-bold text-muted-foreground uppercase py-4 space-y-2">
-              <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                <span>Required:</span>
-                <span className="text-primary text-xl">{showCreditModal.requested}</span>
-              </div>
-              <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                <span>Available:</span>
-                <span className="text-destructive text-xl">{showCreditModal.available}</span>
+            <DialogDescription asChild>
+              <div className="font-bold text-muted-foreground uppercase py-4 space-y-2">
+                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span>Required:</span>
+                  <span className="text-primary text-xl">{showCreditModal.requested}</span>
+                </div>
+                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span>Available:</span>
+                  <span className="text-destructive text-xl">{showCreditModal.available}</span>
+                </div>
               </div>
             </DialogDescription>
           </DialogHeader>
