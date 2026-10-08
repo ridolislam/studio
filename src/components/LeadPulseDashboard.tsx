@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -114,7 +115,6 @@ export default function LeadPulseDashboard() {
         const res = await getActiveServer();
         if (res.success && res.activeServer !== activeServer) {
           setActiveServer(res.activeServer);
-          toast({ title: "System Update", description: "The validation server was changed by the administrator." });
           fetchBatchInfo();
         }
       }
@@ -156,7 +156,6 @@ export default function LeadPulseDashboard() {
         const updatedUser = { ...userData, credits: res.credits };
         localStorage.setItem('user', JSON.stringify(updatedUser));
         
-        // Use timeout to avoid hydration/render conflicts
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
         }, 0);
@@ -230,28 +229,7 @@ export default function LeadPulseDashboard() {
     const email = userData.email || userData.data?.email || userData.user?.email;
     if (!email) return;
 
-    setIsCheckingResources(true);
-    const resources = await fetchBatchInfo();
-    setIsCheckingResources(false);
-
-    if (!resources?.success) {
-      toast({ 
-        variant: "destructive", 
-        title: "Service Unavailable", 
-        description: "Service is temporarily unavailable, please try again shortly." 
-      });
-      return;
-    }
-
-    if (resources?.keysAvailable === false) {
-      toast({ 
-        variant: "destructive", 
-        title: "Capacity Exhausted", 
-        description: "Validation is temporarily unavailable (no active API keys)." 
-      });
-      return;
-    }
-
+    // Initialize state immediately to avoid UI lag
     setIsProcessing(true);
     stopRequestedRef.current = false;
     
@@ -270,6 +248,19 @@ export default function LeadPulseDashboard() {
       setLastIndex(0);
     }
 
+    // Fetch capability concurrently
+    const resources = await fetchBatchInfo();
+
+    if (!resources?.success || resources?.keysAvailable === false) {
+      setIsProcessing(false);
+      toast({ 
+        variant: "destructive", 
+        title: resources?.success ? "Capacity Exhausted" : "Service Unavailable", 
+        description: resources?.success ? "No active API keys." : "Server unreachable." 
+      });
+      return;
+    }
+
     const batchSize = resources.recommendedBatchSize || 10;
     let currentIndex = resume ? lastIndex : 0;
 
@@ -281,12 +272,10 @@ export default function LeadPulseDashboard() {
         currentIndex += chunk.length;
         setLastIndex(currentIndex);
       } catch (err: any) {
-        if (err.message === 'NO_CREDITS') break;
-        if (err.name === 'AbortError') break;
+        if (err.message === 'NO_CREDITS' || err.name === 'AbortError') break;
         console.error("Chunk processing error:", err);
         break;
       }
-
       if (stopRequestedRef.current) break;
     }
 
@@ -326,11 +315,7 @@ export default function LeadPulseDashboard() {
           const data = JSON.parse(dataStr);
 
           if (!Array.isArray(data)) {
-            if (data.status === "DONE") {
-              await reader.cancel();
-              return;
-            }
-            if (data.status === "PAUSED") {
+            if (data.status === "DONE" || data.status === "PAUSED") {
               await reader.cancel();
               return;
             }
@@ -410,7 +395,7 @@ export default function LeadPulseDashboard() {
     stopRequestedRef.current = true;
     const userData = JSON.parse(localStorage.getItem('user') || '{}');
     const email = userData.email || userData.data?.email || userData.user?.email;
-    if (email) await stopValidation(email); 
+    if (email) stopValidation(email); 
     abortControllerRef.current?.abort(); 
     setIsProcessing(false);
   };
@@ -534,8 +519,8 @@ export default function LeadPulseDashboard() {
                   )}
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Button onClick={() => handleStart()} disabled={isProcessing || isCheckingResources} className="h-14 bg-primary font-black italic rounded-xl text-lg group">
-                      {isProcessing || isCheckingResources ? <Loader2 className="animate-spin" /> : <><Play className="mr-2 h-4 w-4 group-hover:fill-current" /> START</>}
+                    <Button onClick={() => handleStart()} disabled={isProcessing} className="h-14 bg-primary font-black italic rounded-xl text-lg group">
+                      {isProcessing ? <Loader2 className="animate-spin" /> : <><Play className="mr-2 h-4 w-4 group-hover:fill-current" /> START</>}
                     </Button>
                     <Button 
                       onClick={handleStop} 
@@ -734,28 +719,30 @@ export default function LeadPulseDashboard() {
       </Tabs>
 
       <Dialog open={showCreditModal.open} onOpenChange={(open) => setShowCreditModal(s => ({...s, open}))}>
-        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl">
-          <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
-          <DialogHeader className="text-center pt-6">
-            <div className="mx-auto w-20 h-20 bg-destructive/10 rounded-3xl flex items-center justify-center mb-6 border border-destructive/20">
-              <ShieldAlert className="h-10 w-10 text-destructive" />
-            </div>
-            <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Insufficient Balance</DialogTitle>
-            <div className="py-4 space-y-2">
-              <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase">Processing stopped due to zero credits.</span>
+        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl" asChild>
+          <div>
+            <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
+            <DialogHeader className="text-center pt-6">
+              <div className="mx-auto w-20 h-20 bg-destructive/10 rounded-3xl flex items-center justify-center mb-6 border border-destructive/20">
+                <ShieldAlert className="h-10 w-10 text-destructive" />
               </div>
-              <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase">Available Credits:</span>
-                <span className="text-destructive text-xl font-black italic">{showCreditModal.available}</span>
+              <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Insufficient Balance</DialogTitle>
+              <div className="py-4 space-y-2">
+                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Processing stopped due to zero credits.</span>
+                </div>
+                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Available Credits:</span>
+                  <span className="text-destructive text-xl font-black italic">{showCreditModal.available}</span>
+                </div>
               </div>
-            </div>
-          </DialogHeader>
-          <DialogFooter className="pb-6 px-6 sm:justify-center">
-            <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all">
-              <CreditCard className="mr-2 h-6 w-6" /> RECHARGE ACCOUNT
-            </Button>
-          </DialogFooter>
+            </DialogHeader>
+            <DialogFooter className="pb-6 px-6 sm:justify-center">
+              <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all">
+                <CreditCard className="mr-2 h-6 w-6" /> RECHARGE ACCOUNT
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
