@@ -21,7 +21,9 @@ import {
   ShieldAlert,
   HelpCircle,
   Copy,
-  FileText
+  FileText,
+  Activity,
+  Server
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -65,6 +67,7 @@ export default function LeadPulseDashboard() {
   const [numberInput, setNumberInput] = useState('');
   const [region, setRegion] = useState('1');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCheckingResources, setIsCheckingResources] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<ValidationResult[]>([]);
   const [credits, setCredits] = useState<number>(0);
@@ -72,7 +75,15 @@ export default function LeadPulseDashboard() {
   const [history, setHistory] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const [counts, setCounts] = useState({ mobile: 0, landline: 0, invalid: 0, fake: 0, failed: 0 });
+  const [counts, setCounts] = useState({ 
+    mobile: 0, 
+    landline: 0, 
+    voip: 0, 
+    toll_free: 0, 
+    invalid: 0, 
+    fake: 0, 
+    failed: 0 
+  });
   const [showCreditModal, setShowCreditModal] = useState({ open: false, available: 0, requested: 0 });
   const [lastIndex, setLastIndex] = useState(0);
   const [batchInfo, setBatchInfo] = useState<any>(null);
@@ -101,6 +112,7 @@ export default function LeadPulseDashboard() {
   const fetchBatchInfo = async () => {
     const res = await getBatchInfo();
     setBatchInfo(res);
+    return res;
   };
 
   const fetchAndSyncProfile = async () => {
@@ -113,13 +125,10 @@ export default function LeadPulseDashboard() {
       setIsSyncing(true);
       const res = await syncUserProfile(email);
       if (res.success) {
-        // Defer state update to prevent hydration/render clash
-        setTimeout(() => {
-          setCredits(res.credits);
-          const updatedUser = { ...userData, credits: res.credits };
-          localStorage.setItem('user', JSON.stringify(updatedUser));
-          window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
-        }, 0);
+        setCredits(res.credits);
+        const updatedUser = { ...userData, credits: res.credits };
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
       }
     } finally {
       setIsSyncing(false);
@@ -160,12 +169,10 @@ export default function LeadPulseDashboard() {
             const separator = prev.endsWith('\n') || prev === '' ? '' : '\n';
             return prev + separator + extractedNumbers.join('\n');
           });
-          toast({ title: "Success", description: `${extractedNumbers.length} numbers imported from file.` });
-        } else {
-          toast({ variant: "destructive", title: "Empty File", description: "No valid numbers found in column A." });
+          toast({ title: "Success", description: `${extractedNumbers.length} numbers imported.` });
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Error", description: "Could not parse file. Use Excel or CSV." });
+        toast({ variant: "destructive", title: "Error", description: "Invalid file format." });
       }
     };
     reader.readAsBinaryString(file);
@@ -173,33 +180,14 @@ export default function LeadPulseDashboard() {
   };
 
   const downloadSingleResult = (res: ValidationResult) => {
-    const content = `
-Number: ${res.number}
-Status: ${res.status.toUpperCase()}
-Type: ${res.type}
-Carrier: ${res.carrier}
-Location: ${res.location}
-Country: ${res.country_name || 'N/A'} (${res.country_code || 'N/A'})
-Provider: ${res.provider || 'S1'}
-Timestamp: ${res.timestamp}
-${res.phonevalidator ? `
-Fake Detection: ${res.phonevalidator.fake_number}
-Reason: ${res.phonevalidator.fake_reason || 'None'}
-Outside US: ${res.phonevalidator.outside_us}
-` : ''}
-    `.trim();
-
+    const content = `Number: ${res.number}\nStatus: ${res.status.toUpperCase()}\nType: ${res.type}\nCarrier: ${res.carrier}\nLocation: ${res.location}\nProvider: ${res.provider || 'S1'}`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `result_${res.number}.txt`;
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
-    toast({ title: "Downloaded", description: `Result for ${res.number} saved.` });
   };
 
   const handleStart = async (resume = false) => {
@@ -211,8 +199,21 @@ Outside US: ${res.phonevalidator.outside_us}
     const email = userData.email || userData.data?.email || userData.user?.email;
     if (!email) return;
 
+    // Resource Check
+    setIsCheckingResources(true);
+    const resources = await fetchBatchInfo();
+    setIsCheckingResources(false);
+
+    if (resources?.recommendedBatchSize === 0) {
+      toast({ 
+        variant: "destructive", 
+        title: "No Capacity", 
+        description: "No API keys or resources are currently available on the active server." 
+      });
+      return;
+    }
+
     setIsProcessing(true);
-    
     const linesToProcess = resume ? allLines.slice(lastIndex) : allLines;
 
     if (!resume) {
@@ -226,7 +227,7 @@ Outside US: ${res.phonevalidator.outside_us}
         status: 'invalid', 
         timestamp: new Date().toISOString() 
       })));
-      setCounts({ mobile: 0, landline: 0, invalid: 0, fake: 0, failed: 0 });
+      setCounts({ mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 });
       setLastIndex(0);
     }
 
@@ -290,13 +291,18 @@ Outside US: ${res.phonevalidator.outside_us}
                   const idx = next.indexOf(targetRow);
 
                   let finalStatus: any = 'invalid';
+                  const typeLower = (item.line_type || '').toLowerCase();
+
                   if (item.error) {
                     finalStatus = 'failed';
                     setCounts(c => ({...c, failed: c.failed + 1}));
                   } else if (item.valid === true) {
                     finalStatus = 'success';
-                    if (item.line_type?.toLowerCase().includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
-                    else setCounts(c => ({...c, landline: c.landline + 1}));
+                    if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
+                    else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
+                    else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
+                    else if (typeLower.includes('toll_free') || typeLower.includes('toll free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
+                    else setCounts(c => ({...c, mobile: c.mobile + 1})); // Default to mobile if valid
                   } else if (item.valid === false && item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
                     finalStatus = 'fake';
                     setCounts(c => ({...c, fake: c.fake + 1}));
@@ -351,15 +357,12 @@ Outside US: ${res.phonevalidator.outside_us}
       Type: r.type,
       Carrier: r.carrier,
       Location: r.location,
-      CountryCode: r.country_code || '',
       Provider: r.provider || 'S1',
-      FakeNumber: r.phonevalidator?.fake_number || 'N/A',
-      FakeReason: r.phonevalidator?.fake_reason || '',
-      OutsideUS: r.phonevalidator?.outside_us || ''
+      FakeReason: r.phonevalidator?.fake_reason || ''
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `numcheckr_${filter || 'all'}_${new Date().getTime()}.xlsx`);
+    XLSX.writeFile(wb, `results_${new Date().getTime()}.xlsx`);
   };
 
   if (!isMounted) return null;
@@ -374,6 +377,15 @@ Outside US: ${res.phonevalidator.outside_us}
           </TabsList>
 
           <div className="flex items-center gap-4 bg-primary/5 px-6 py-3 rounded-2xl border border-primary/20">
+            {batchInfo && (
+              <div className="hidden md:flex flex-col items-start mr-4 border-r border-primary/20 pr-4">
+                <span className="text-[9px] font-black uppercase text-primary/60">System Capacity</span>
+                <span className="text-xs font-black italic flex items-center gap-1">
+                  <Activity className="h-3 w-3 text-green-500" /> 
+                  {batchInfo.recommendedBatchSize} units/cycle
+                </span>
+              </div>
+            )}
             <div className="flex flex-col items-end">
               <span className="text-[10px] font-black uppercase text-primary/70">Balance</span>
               <span className="text-2xl font-black italic">{Math.max(0, credits)}</span>
@@ -401,13 +413,7 @@ Outside US: ${res.phonevalidator.outside_us}
                   >
                     <Upload className="h-3 w-3 mr-1" /> Upload
                   </Button>
-                  <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                    accept=".xlsx,.xls,.csv" 
-                    onChange={handleFileUpload}
-                  />
+                  <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} />
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Textarea 
@@ -426,15 +432,7 @@ Outside US: ${res.phonevalidator.outside_us}
                     </CollapsibleTrigger>
                     <CollapsibleContent className="space-y-4 pt-2">
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="text-[10px] font-black uppercase opacity-50">Validation Region</label>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild><HelpCircle className="h-3 w-3 opacity-30 cursor-help" /></TooltipTrigger>
-                              <TooltipContent><p className="text-[10px]">Optimizes latency for Server 2 requests.</p></TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
+                        <label className="text-[10px] font-black uppercase opacity-50">Validation Region</label>
                         <Select value={region} onValueChange={(val) => { setRegion(val); localStorage.setItem('numcheckr_region', val); }}>
                           <SelectTrigger className="bg-black/40 border-white/10 h-10 rounded-xl">
                             <SelectValue placeholder="Region 1" />
@@ -450,8 +448,8 @@ Outside US: ${res.phonevalidator.outside_us}
                   </Collapsible>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Button onClick={() => handleStart()} disabled={isProcessing} className="h-14 bg-primary font-black italic rounded-xl text-lg group">
-                      {isProcessing ? <Loader2 className="animate-spin" /> : <><Play className="mr-2 h-4 w-4 group-hover:fill-current" /> START</>}
+                    <Button onClick={() => handleStart()} disabled={isProcessing || isCheckingResources} className="h-14 bg-primary font-black italic rounded-xl text-lg group">
+                      {isProcessing || isCheckingResources ? <Loader2 className="animate-spin" /> : <><Play className="mr-2 h-4 w-4 group-hover:fill-current" /> START</>}
                     </Button>
                     <Button 
                       onClick={async () => { 
@@ -474,41 +472,49 @@ Outside US: ${res.phonevalidator.outside_us}
                   <Code2 className="h-3 w-3 text-primary" />
                   <span className="text-[10px] font-black uppercase tracking-widest">Live Metadata</span>
                 </div>
-                <ScrollArea className="h-[200px] p-4 font-code text-[10px] text-primary/80">
-                  {liveJson ? <pre className="whitespace-pre-wrap">{JSON.stringify(liveJson, null, 2)}</pre> : <div className="opacity-20 text-center pt-10 italic uppercase">Monitoring Stream...</div>}
+                <ScrollArea className="h-[150px] p-4 font-code text-[10px] text-primary/80">
+                  {liveJson ? <pre className="whitespace-pre-wrap">{JSON.stringify(liveJson, null, 2)}</pre> : <div className="opacity-20 text-center pt-6 italic uppercase">Monitoring...</div>}
                 </ScrollArea>
               </Card>
             </div>
 
             <div className="xl:col-span-3 space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <Card className="bg-green-500/5 p-4 rounded-2xl border border-green-500/10">
-                  <p className="text-[10px] font-black uppercase text-green-500 mb-1">Mobile</p>
-                  <h3 className="text-3xl font-black italic">{counts.mobile}</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+                <Card className="bg-green-500/5 p-3 rounded-xl border border-green-500/10 text-center">
+                  <p className="text-[9px] font-black uppercase text-green-500 mb-1">Mobile</p>
+                  <h3 className="text-2xl font-black italic">{counts.mobile}</h3>
                 </Card>
-                <Card className="bg-blue-500/5 p-4 rounded-2xl border border-blue-500/10">
-                  <p className="text-[10px] font-black uppercase text-blue-500 mb-1">Landline</p>
-                  <h3 className="text-3xl font-black italic">{counts.landline}</h3>
+                <Card className="bg-blue-500/5 p-3 rounded-xl border border-blue-500/10 text-center">
+                  <p className="text-[9px] font-black uppercase text-blue-500 mb-1">Landline</p>
+                  <h3 className="text-2xl font-black italic">{counts.landline}</h3>
                 </Card>
-                <Card className="bg-amber-500/5 p-4 rounded-2xl border border-amber-500/10">
-                  <p className="text-[10px] font-black uppercase text-amber-500 mb-1">Fake</p>
-                  <h3 className="text-3xl font-black italic">{counts.fake}</h3>
+                <Card className="bg-purple-500/5 p-3 rounded-xl border border-purple-500/10 text-center">
+                  <p className="text-[9px] font-black uppercase text-purple-500 mb-1">VOIP</p>
+                  <h3 className="text-2xl font-black italic">{counts.voip}</h3>
                 </Card>
-                <Card className="bg-red-500/5 p-4 rounded-2xl border border-red-500/10">
-                  <p className="text-[10px] font-black uppercase text-red-500 mb-1">Invalid</p>
-                  <h3 className="text-3xl font-black italic">{counts.invalid}</h3>
+                <Card className="bg-cyan-500/5 p-3 rounded-xl border border-cyan-500/10 text-center">
+                  <p className="text-[9px] font-black uppercase text-cyan-500 mb-1">Toll Free</p>
+                  <h3 className="text-2xl font-black italic">{counts.toll_free}</h3>
                 </Card>
-                <Card className="bg-white/5 p-4 rounded-2xl border border-white/10 opacity-60">
-                  <p className="text-[10px] font-black uppercase text-muted-foreground mb-1">Failed</p>
-                  <h3 className="text-3xl font-black italic">{counts.failed}</h3>
+                <Card className="bg-amber-500/5 p-3 rounded-xl border border-amber-500/10 text-center">
+                  <p className="text-[9px] font-black uppercase text-amber-500 mb-1">Fake</p>
+                  <h3 className="text-2xl font-black italic">{counts.fake}</h3>
+                </Card>
+                <Card className="bg-red-500/5 p-3 rounded-xl border border-red-500/10 text-center">
+                  <p className="text-[9px] font-black uppercase text-red-500 mb-1">Invalid</p>
+                  <h3 className="text-2xl font-black italic">{counts.invalid}</h3>
+                </Card>
+                <Card className="bg-white/5 p-3 rounded-xl border border-white/10 text-center opacity-60">
+                  <p className="text-[9px] font-black uppercase text-muted-foreground mb-1">Failed</p>
+                  <h3 className="text-2xl font-black italic">{counts.failed}</h3>
                 </Card>
               </div>
 
               <div className="bg-card/40 p-5 rounded-2xl border border-white/5 shadow-inner">
                 <div className="flex justify-between items-end mb-3 px-1">
                    <div className="space-y-1">
-                     <span className="text-[10px] font-black uppercase opacity-50 block">Processing Velocity</span>
-                     <span className="text-xs font-black italic text-primary">Status: {isProcessing ? 'Active Validation' : 'Idle Queue'}</span>
+                     <span className="text-[10px] font-black uppercase opacity-50 block">Validation Velocity</span>
+                     <span className="text-xs font-black italic text-primary">{isProcessing ? 'Active Validation' : 'Idle Queue'}</span>
                    </div>
                    <span className="text-xl font-black italic text-primary">{progress}%</span>
                 </div>
@@ -519,27 +525,27 @@ Outside US: ${res.phonevalidator.outside_us}
                 <div className="p-4 border-b border-white/5 bg-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                    <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Real-time Validation Feed</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Real-time Stream</span>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="h-9 rounded-xl text-[9px] font-black uppercase border-white/5 hover:bg-green-500/10 hover:text-green-500 transition-colors" onClick={() => downloadResults('valid')}>Export Valid</Button>
-                    <Button size="sm" variant="outline" className="h-9 rounded-xl text-[9px] font-black uppercase border-white/5 hover:bg-primary/10 hover:text-primary transition-colors" onClick={() => downloadResults()}>Master Export</Button>
+                    <Button size="sm" variant="outline" className="h-9 rounded-xl text-[9px] font-black uppercase border-white/5 hover:bg-green-500/10 hover:text-green-500" onClick={() => downloadResults('valid')}>Export Valid</Button>
+                    <Button size="sm" variant="outline" className="h-9 rounded-xl text-[9px] font-black uppercase border-white/5 hover:bg-primary/10 hover:text-primary" onClick={() => downloadResults()}>Master Export</Button>
                   </div>
                 </div>
-                <div className="overflow-x-auto max-h-[650px] scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                <div className="overflow-x-auto max-h-[600px] scrollbar-thin scrollbar-thumb-white/10">
                   <Table>
                     <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-md">
                       <TableRow className="border-white/5">
                         <TableHead className="px-8 text-[10px] font-black uppercase tracking-widest">Phone Number</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Status / Type</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Location Info</TableHead>
-                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Network Operator</TableHead>
+                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
                         <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Engine</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {results.length === 0 ? (
-                        <TableRow><TableCell colSpan={5} className="h-80 text-center opacity-20 font-black italic uppercase tracking-[0.2em] scale-90">Waiting for data stream...</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={5} className="h-80 text-center opacity-20 font-black italic uppercase tracking-[0.2em]">Ready for stream...</TableCell></TableRow>
                       ) : (
                         results.map(res => (
                           <TableRow 
@@ -554,21 +560,7 @@ Outside US: ${res.phonevalidator.outside_us}
                               <div className="flex flex-col">
                                 <span className="font-code font-black text-primary text-base flex items-center gap-2">
                                   {res.number}
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Copy 
-                                          className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" 
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            navigator.clipboard.writeText(res.number);
-                                            toast({ title: "Copied", description: "Number copied to clipboard." });
-                                          }}
-                                        />
-                                      </TooltipTrigger>
-                                      <TooltipContent><p className="text-[8px]">Copy Number</p></TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
+                                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(res.number); toast({ title: "Copied", description: "Number copied." }); }} />
                                 </span>
                                 <span className="text-[9px] font-bold opacity-30 uppercase">{res.timestamp.split('T')[1].split('.')[0]}</span>
                               </div>
@@ -583,7 +575,7 @@ Outside US: ${res.phonevalidator.outside_us}
                                 </Badge>
                                 {res.phonevalidator?.fake_number === 'YES' && (
                                   <span className="text-[8px] font-black text-amber-500/70 uppercase flex items-center gap-1">
-                                    <AlertTriangle className="h-2 w-2" /> {res.phonevalidator.fake_reason || 'Burner Line Detected'}
+                                    <AlertTriangle className="h-2 w-2" /> {res.phonevalidator.fake_reason || 'Burner Detection'}
                                   </span>
                                 )}
                               </div>
@@ -594,16 +586,13 @@ Outside US: ${res.phonevalidator.outside_us}
                                 <span className="text-[9px] font-bold uppercase opacity-40">{res.country_code ? `${res.country_code} - ${res.country_name}` : ''}</span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-xs font-bold italic opacity-70 group-hover:opacity-100 transition-opacity">{res.carrier}</TableCell>
+                            <TableCell className="text-xs font-bold italic opacity-70">{res.carrier}</TableCell>
                             <TableCell className="text-right px-8">
                               <div className="flex flex-col items-end gap-2">
                                 {res.provider === 'phonevalidator' ? (
                                   <Badge variant="outline" className="text-[8px] font-black border-accent/30 text-accent uppercase tracking-tighter">Server 2 (PV)</Badge>
                                 ) : (
                                   res.type !== 'Pending' && <Badge variant="outline" className="text-[8px] font-black border-primary/30 text-primary uppercase tracking-tighter">Server 1 (NV)</Badge>
-                                )}
-                                {res.type !== 'Pending' && (
-                                  <FileText className="h-4 w-4 opacity-0 group-hover:opacity-100 text-primary transition-all" />
                                 )}
                               </div>
                             </TableCell>
@@ -635,13 +624,11 @@ Outside US: ${res.phonevalidator.outside_us}
                  </TableHeader>
                  <TableBody>
                    {history.length === 0 ? (
-                     <TableRow><TableCell colSpan={3} className="h-40 text-center opacity-20 italic font-black uppercase">No logs recorded yet</TableCell></TableRow>
+                     <TableRow><TableCell colSpan={3} className="h-40 text-center opacity-20 italic font-black uppercase">No logs recorded</TableCell></TableRow>
                    ) : (
                      history.map((item, i) => (
                        <TableRow key={i} className="h-20 border-white/5 hover:bg-white/5 transition-colors">
-                         <TableCell className="px-8 text-xs font-code opacity-60">
-                           {item.date ? new Date(item.date).toLocaleString() : 'N/A'}
-                         </TableCell>
+                         <TableCell className="px-8 text-xs font-code opacity-60">{item.date ? new Date(item.date).toLocaleString() : 'N/A'}</TableCell>
                          <TableCell>
                             <div className="flex flex-col">
                               <span className="font-black italic text-sm">{item.description}</span>
@@ -650,10 +637,7 @@ Outside US: ${res.phonevalidator.outside_us}
                          </TableCell>
                          <TableCell className="text-right px-8">
                            <div className="flex flex-col items-end">
-                             <span className={cn(
-                               "text-xl font-black italic",
-                               item.type === 'Payment' ? 'text-green-500' : 'text-primary'
-                             )}>{item.amount || '0'}</span>
+                             <span className={cn("text-xl font-black italic", item.type === 'Payment' ? 'text-green-500' : 'text-primary')}>{item.amount || '0'}</span>
                              <span className="text-[8px] font-black uppercase opacity-30">Credits</span>
                            </div>
                          </TableCell>
@@ -689,8 +673,8 @@ Outside US: ${res.phonevalidator.outside_us}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="pb-6 px-6 sm:justify-center">
-            <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all group">
-              <CreditCard className="mr-2 h-6 w-6 group-hover:scale-110 transition-transform" /> RECHARGE NOW
+            <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all">
+              <CreditCard className="mr-2 h-6 w-6" /> RECHARGE NOW
             </Button>
           </DialogFooter>
         </DialogContent>
