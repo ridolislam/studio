@@ -57,6 +57,7 @@ interface ValidationResult {
   provider?: string;
   error?: string;
   phonevalidator?: {
+    line_type?: string;
     fake_number: string;
     fake_reason: string;
     outside_us: string;
@@ -67,7 +68,6 @@ export default function LeadPulseDashboard() {
   const [numberInput, setNumberInput] = useState('');
   const [region, setRegion] = useState('1');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isCheckingResources, setIsCheckingResources] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<ValidationResult[]>([]);
   const [credits, setCredits] = useState<number>(0);
@@ -108,21 +108,21 @@ export default function LeadPulseDashboard() {
 
     fetchAndSyncProfile();
     fetchHistory();
-    fetchBatchInfo();
+    fetchInitialBatchInfo();
 
     const interval = setInterval(async () => {
       if (!isProcessing) {
         const res = await getActiveServer();
         if (res.success && res.activeServer !== activeServer) {
           setActiveServer(res.activeServer);
-          fetchBatchInfo();
+          fetchInitialBatchInfo();
         }
       }
     }, 60000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && !isProcessing) {
-        fetchBatchInfo();
+        fetchInitialBatchInfo();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -133,7 +133,7 @@ export default function LeadPulseDashboard() {
     };
   }, [activeServer, isProcessing]);
 
-  const fetchBatchInfo = async () => {
+  const fetchInitialBatchInfo = async () => {
     const res = await getBatchInfo();
     if (res.success) {
       setBatchInfo(res);
@@ -155,10 +155,7 @@ export default function LeadPulseDashboard() {
         setCredits(res.credits);
         const updatedUser = { ...userData, credits: res.credits };
         localStorage.setItem('user', JSON.stringify(updatedUser));
-        
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
-        }, 0);
+        window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
       }
     } finally {
       setIsSyncing(false);
@@ -210,7 +207,7 @@ export default function LeadPulseDashboard() {
   };
 
   const downloadSingleResult = (res: ValidationResult) => {
-    const content = `Number: ${res.number}\nStatus: ${res.status.toUpperCase()}\nType: ${res.type}\nCarrier: ${res.carrier}\nLocation: ${res.location}\nProvider: ${res.provider || 'Server 1'}`;
+    const content = `Number: ${res.number}\nStatus: ${res.status.toUpperCase()}\nType: ${res.type}\nCarrier: ${res.carrier}\nLocation: ${res.location}\nProvider: ${res.provider || 'Core 1'}${res.phonevalidator ? `\nFake Reason: ${res.phonevalidator.fake_reason}\nOutside US: ${res.phonevalidator.outside_us}` : ''}`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -229,7 +226,6 @@ export default function LeadPulseDashboard() {
     const email = userData.email || userData.data?.email || userData.user?.email;
     if (!email) return;
 
-    // Initialize state immediately to avoid UI lag
     setIsProcessing(true);
     stopRequestedRef.current = false;
     
@@ -248,22 +244,22 @@ export default function LeadPulseDashboard() {
       setLastIndex(0);
     }
 
-    // Fetch capability concurrently
-    const resources = await fetchBatchInfo();
-
+    // Immediate Resource Check
+    const resources = await getBatchInfo();
     if (!resources?.success || resources?.keysAvailable === false) {
       setIsProcessing(false);
       toast({ 
         variant: "destructive", 
         title: resources?.success ? "Capacity Exhausted" : "Service Unavailable", 
-        description: resources?.success ? "No active API keys." : "Server unreachable." 
+        description: resources?.success ? "No active API keys available." : "Backend server unreachable." 
       });
       return;
     }
 
-    const batchSize = resources.recommendedBatchSize || 10;
+    const batchSize = resources.recommendedBatchSize || 25;
     let currentIndex = resume ? lastIndex : 0;
 
+    // Start processing batches one by one
     while (currentIndex < allLines.length && !stopRequestedRef.current) {
       const chunk = allLines.slice(currentIndex, currentIndex + batchSize);
       
@@ -273,7 +269,7 @@ export default function LeadPulseDashboard() {
         setLastIndex(currentIndex);
       } catch (err: any) {
         if (err.message === 'NO_CREDITS' || err.name === 'AbortError') break;
-        console.error("Chunk processing error:", err);
+        console.error("Chunk processing failed:", err);
         break;
       }
       if (stopRequestedRef.current) break;
@@ -293,7 +289,7 @@ export default function LeadPulseDashboard() {
       signal: abortControllerRef.current.signal
     });
 
-    if (!response.body) throw new Error("No stream body");
+    if (!response.body) throw new Error("Stream response body is empty");
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -314,79 +310,82 @@ export default function LeadPulseDashboard() {
         try {
           const data = JSON.parse(dataStr);
 
-          if (!Array.isArray(data)) {
-            if (data.status === "DONE" || data.status === "PAUSED") {
-              await reader.cancel();
-              return;
-            }
-            if (data.status === "NO_CREDITS") {
-              await reader.cancel();
-              setShowCreditModal({ 
-                open: true, 
-                available: data.available || credits, 
-                requested: data.requested || chunk.length 
+          // Handle array of items (Normal processing result)
+          if (Array.isArray(data)) {
+            setResults(prev => {
+              const next = [...prev];
+              data.forEach((item: any) => {
+                // Match items by number
+                const targetIdx = next.findIndex(r => r.number === item.number && r.type === 'Pending');
+                
+                if (targetIdx !== -1) {
+                  let finalStatus: any = 'invalid';
+                  const typeLower = (item.line_type || '').toLowerCase();
+
+                  if (item.error) {
+                    finalStatus = 'failed';
+                    setCounts(c => ({...c, failed: c.failed + 1}));
+                  } else if (item.valid === true) {
+                    finalStatus = 'success';
+                    if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
+                    else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
+                    else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
+                    else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
+                    else setCounts(c => ({...c, mobile: c.mobile + 1}));
+                  } else if (item.valid === false && item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
+                    finalStatus = 'fake';
+                    setCounts(c => ({...c, fake: c.fake + 1}));
+                  } else {
+                    finalStatus = 'invalid';
+                    setCounts(c => ({...c, invalid: c.invalid + 1}));
+                  }
+
+                  next[targetIdx] = {
+                    ...next[targetIdx],
+                    type: item.error ? 'Failed' : (item.line_type || 'Invalid'),
+                    carrier: item.carrier || '—',
+                    location: item.location || item.country_name || '—',
+                    country_code: item.country_code,
+                    country_name: item.country_name,
+                    status: finalStatus,
+                    provider: item.provider,
+                    phonevalidator: item.phonevalidator,
+                    error: item.error,
+                    timestamp: new Date().toISOString()
+                  };
+                }
               });
-              throw new Error('NO_CREDITS');
-            }
-            if (data.status === "ERROR" || data.error) {
-              await reader.cancel();
-              toast({ variant: "destructive", title: "Process Error", description: data.error || "Server error" });
-              throw new Error(data.error || 'SERVER_ERROR');
-            }
+              
+              const processed = next.filter(r => r.type !== 'Pending').length;
+              setProgress(Math.round((processed / totalCount) * 100));
+              return next;
+            });
+            setLiveJson(data[data.length - 1]);
             continue;
           }
 
-          setResults(prev => {
-            const next = [...prev];
-            data.forEach((item: any) => {
-              const pendingRows = next.filter(r => r.number === item.number && r.type === 'Pending');
-              if (pendingRows.length > 0) {
-                const targetRow = pendingRows[0];
-                const idx = next.indexOf(targetRow);
-
-                let finalStatus: any = 'invalid';
-                const typeLower = (item.line_type || '').toLowerCase();
-
-                if (item.error) {
-                  finalStatus = 'failed';
-                  setCounts(c => ({...c, failed: c.failed + 1}));
-                } else if (item.valid === true) {
-                  finalStatus = 'success';
-                  if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
-                  else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
-                  else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
-                  else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
-                  else setCounts(c => ({...c, mobile: c.mobile + 1}));
-                } else if (item.valid === false && item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
-                  finalStatus = 'fake';
-                  setCounts(c => ({...c, fake: c.fake + 1}));
-                } else {
-                  finalStatus = 'invalid';
-                  setCounts(c => ({...c, invalid: c.invalid + 1}));
-                }
-
-                next[idx] = {
-                  ...next[idx],
-                  type: item.error ? 'Failed' : (item.line_type || 'Invalid'),
-                  carrier: item.carrier || '—',
-                  location: item.location || item.country_name || '—',
-                  country_code: item.country_code,
-                  country_name: item.country_name,
-                  status: finalStatus,
-                  provider: item.provider,
-                  phonevalidator: item.phonevalidator,
-                  error: item.error,
-                  timestamp: new Date().toISOString()
-                };
-              }
+          // Handle Status Objects
+          if (data.status === "DONE" || data.status === "PAUSED") {
+            await reader.cancel();
+            return;
+          }
+          if (data.status === "NO_CREDITS") {
+            await reader.cancel();
+            setShowCreditModal({ 
+              open: true, 
+              available: data.available || credits, 
+              requested: data.requested || chunk.length 
             });
-            
-            const processed = next.filter(r => r.type !== 'Pending').length;
-            setProgress(Math.round((processed / totalCount) * 100));
-            return next;
-          });
-          setLiveJson(data[data.length - 1]);
-        } catch (e) {}
+            throw new Error('NO_CREDITS');
+          }
+          if (data.status === "ERROR" || data.error) {
+            await reader.cancel();
+            toast({ variant: "destructive", title: "Process Error", description: data.error || "A system error occurred" });
+            throw new Error(data.error || 'SERVER_ERROR');
+          }
+        } catch (e) {
+          // JSON parse errors usually happen on partial stream chunks
+        }
       }
     }
   };
@@ -412,7 +411,7 @@ export default function LeadPulseDashboard() {
       Type: r.type,
       Carrier: r.carrier,
       Location: r.location,
-      Provider: r.provider || 'Server 1',
+      Provider: r.provider || 'Core 1',
       CountryCode: r.country_code || '',
       FakeReason: r.phonevalidator?.fake_reason || '',
       OutsideUS: r.phonevalidator?.outside_us || ''
@@ -501,7 +500,7 @@ export default function LeadPulseDashboard() {
                              <TooltipTrigger asChild>
                                <HelpCircle className="h-3 w-3 opacity-30 cursor-help" />
                              </TooltipTrigger>
-                             <TooltipContent>Optimizes validation latency for the selected region.</TooltipContent>
+                             <TooltipContent>Select the region closest to your target leads to minimize latency.</TooltipContent>
                            </Tooltip>
                          </TooltipProvider>
                       </div>
@@ -537,10 +536,10 @@ export default function LeadPulseDashboard() {
               <Card className="bg-black/40 rounded-2xl border-white/5">
                 <div className="p-4 border-b border-white/5 flex items-center gap-2">
                   <Code2 className="h-3 w-3 text-primary" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Metadata Stream</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Live Metadata Stream</span>
                 </div>
                 <ScrollArea className="h-[150px] p-4 font-code text-[10px] text-primary/80">
-                  {liveJson ? <pre className="whitespace-pre-wrap">{JSON.stringify(liveJson, null, 2)}</pre> : <div className="opacity-20 text-center pt-6 italic uppercase">Ready...</div>}
+                  {liveJson ? <pre className="whitespace-pre-wrap">{JSON.stringify(liveJson, null, 2)}</pre> : <div className="opacity-20 text-center pt-6 italic uppercase">Awaiting connection...</div>}
                 </ScrollArea>
               </Card>
             </div>
@@ -581,7 +580,7 @@ export default function LeadPulseDashboard() {
                 <div className="flex justify-between items-end mb-3 px-1">
                    <div className="space-y-1">
                      <span className="text-[10px] font-black uppercase opacity-50 block">Validation Progress</span>
-                     <span className="text-xs font-black italic text-primary">{isProcessing ? 'Streaming Data...' : 'Idle'}</span>
+                     <span className="text-xs font-black italic text-primary">{isProcessing ? 'Processing cycle...' : 'Awaiting start'}</span>
                    </div>
                    <span className="text-xl font-black italic text-primary">{progress}%</span>
                 </div>
@@ -612,7 +611,7 @@ export default function LeadPulseDashboard() {
                     </TableHeader>
                     <TableBody>
                       {results.length === 0 ? (
-                        <TableRow><TableCell colSpan={5} className="h-80 text-center opacity-20 font-black italic uppercase tracking-[0.2em]">Queue Empty</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={5} className="h-80 text-center opacity-20 font-black italic uppercase tracking-[0.2em]">Ready for verification</TableCell></TableRow>
                       ) : (
                         results.map(res => (
                           <TableRow 
@@ -627,7 +626,7 @@ export default function LeadPulseDashboard() {
                               <div className="flex flex-col">
                                 <span className="font-code font-black text-primary text-base flex items-center gap-2">
                                   {res.number}
-                                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(res.number); toast({ title: "Copied", description: "Number copied." }); }} />
+                                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(res.number); toast({ title: "Copied", description: "Number copied to clipboard." }); }} />
                                 </span>
                                 <span className="text-[9px] font-bold opacity-30 uppercase">{res.timestamp.split('T')[1].split('.')[0]}</span>
                               </div>
@@ -640,9 +639,9 @@ export default function LeadPulseDashboard() {
                                 )}>
                                   {res.type}
                                 </Badge>
-                                {res.phonevalidator?.fake_number === 'YES' && (
+                                {res.phonevalidator?.fake_number?.toUpperCase() === 'YES' && (
                                   <span className="text-[8px] font-black text-amber-500/70 uppercase flex items-center gap-1">
-                                    <AlertTriangle className="h-2 w-2" /> {res.phonevalidator.fake_reason || 'Burner'}
+                                    <AlertTriangle className="h-2 w-2" /> {res.phonevalidator.fake_reason || 'Burner Number Detected'}
                                   </span>
                                 )}
                               </div>
@@ -677,21 +676,21 @@ export default function LeadPulseDashboard() {
         <TabsContent value="history">
           <Card className="border-white/5 bg-card/60 rounded-3xl overflow-hidden shadow-2xl">
              <div className="p-6 border-b border-white/5 bg-white/5 flex items-center justify-between">
-               <h3 className="text-xl font-black italic uppercase tracking-tighter">Transaction Logs</h3>
-               <Button variant="ghost" size="sm" onClick={fetchHistory} className="h-8 rounded-lg font-black uppercase text-[10px]"><RefreshCcw className="h-3 w-3 mr-2" /> Refresh</Button>
+               <h3 className="text-xl font-black italic uppercase tracking-tighter">Global Activity Stream</h3>
+               <Button variant="ghost" size="sm" onClick={fetchHistory} className="h-8 rounded-lg font-black uppercase text-[10px]"><RefreshCcw className="h-3 w-3 mr-2" /> Refresh Logs</Button>
              </div>
              <div className="overflow-x-auto">
                <Table>
                  <TableHeader className="bg-muted/10">
                    <TableRow className="border-white/5">
-                     <TableHead className="px-8 py-6 text-[10px] font-black uppercase tracking-widest">Date & Time</TableHead>
-                     <TableHead className="text-[10px] font-black uppercase tracking-widest">Description</TableHead>
-                     <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Impact</TableHead>
+                     <TableHead className="px-8 py-6 text-[10px] font-black uppercase tracking-widest">Timestamp</TableHead>
+                     <TableHead className="text-[10px] font-black uppercase tracking-widest">Transaction Details</TableHead>
+                     <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Balance Impact</TableHead>
                    </TableRow>
                  </TableHeader>
                  <TableBody>
                    {history.length === 0 ? (
-                     <TableRow><TableCell colSpan={3} className="h-40 text-center opacity-20 italic font-black uppercase">Empty</TableCell></TableRow>
+                     <TableRow><TableCell colSpan={3} className="h-40 text-center opacity-20 italic font-black uppercase">No recent activity detected</TableCell></TableRow>
                    ) : (
                      history.map((item, i) => (
                        <TableRow key={i} className="h-20 border-white/5 hover:bg-white/5 transition-colors">
@@ -699,7 +698,7 @@ export default function LeadPulseDashboard() {
                          <TableCell>
                             <div className="flex flex-col">
                               <span className="font-black italic text-sm">{item.description}</span>
-                              <Badge variant="outline" className="w-fit text-[8px] font-black uppercase mt-1 border-white/10 opacity-50">{item.type || 'WORK'}</Badge>
+                              <Badge variant="outline" className="w-fit text-[8px] font-black uppercase mt-1 border-white/10 opacity-50">{item.type || 'VALIDATION_TASK'}</Badge>
                             </div>
                          </TableCell>
                          <TableCell className="text-right px-8">
@@ -719,27 +718,31 @@ export default function LeadPulseDashboard() {
       </Tabs>
 
       <Dialog open={showCreditModal.open} onOpenChange={(open) => setShowCreditModal(s => ({...s, open}))}>
-        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl" asChild>
-          <div>
-            <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
-            <DialogHeader className="text-center pt-6">
+        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl p-0 overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
+          <div className="p-8">
+            <DialogHeader className="text-center">
               <div className="mx-auto w-20 h-20 bg-destructive/10 rounded-3xl flex items-center justify-center mb-6 border border-destructive/20">
                 <ShieldAlert className="h-10 w-10 text-destructive" />
               </div>
-              <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Insufficient Balance</DialogTitle>
-              <div className="py-4 space-y-2">
-                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Processing stopped due to zero credits.</span>
+              <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Insufficient Credits</DialogTitle>
+              <DialogDescription asChild>
+                <div className="text-sm font-bold text-muted-foreground uppercase py-4 space-y-2">
+                  <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <span>Task Request:</span>
+                    <span className="text-white">{showCreditModal.requested} Units</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <span>Available Wallet:</span>
+                    <span className="text-destructive">{showCreditModal.available} Units</span>
+                  </div>
+                  <p className="pt-2 text-[10px] opacity-60 normal-case italic text-center">Validation cycle stopped. Please recharge to continue processing the queue.</p>
                 </div>
-                <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Available Credits:</span>
-                  <span className="text-destructive text-xl font-black italic">{showCreditModal.available}</span>
-                </div>
-              </div>
+              </DialogDescription>
             </DialogHeader>
-            <DialogFooter className="pb-6 px-6 sm:justify-center">
+            <DialogFooter className="sm:justify-center mt-6">
               <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all">
-                <CreditCard className="mr-2 h-6 w-6" /> RECHARGE ACCOUNT
+                <CreditCard className="mr-2 h-6 w-6" /> TOP UP WALLET
               </Button>
             </DialogFooter>
           </div>
@@ -748,3 +751,4 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
+
