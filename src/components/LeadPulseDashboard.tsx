@@ -216,14 +216,11 @@ export default function LeadPulseDashboard() {
     URL.revokeObjectURL(url);
   };
 
+  const normalizeNum = (num: string) => String(num || '').replace(/[^\d]/g, '');
+
   const handleStart = async (resume = false) => {
     const allLines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (allLines.length === 0) return;
-
-    const userStr = localStorage.getItem('user');
-    const userData = JSON.parse(userStr || '{}');
-    const email = userData.email || userData.data?.email || userData.user?.email;
-    if (!email) return;
 
     setIsProcessing(true);
     stopRequestedRef.current = false;
@@ -243,23 +240,19 @@ export default function LeadPulseDashboard() {
       setLastIndex(0);
     }
 
-    const resources = await fetchInitialBatchInfo();
-    if (!resources?.success || resources?.keysAvailable === false) {
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    const email = userData.email || userData.data?.email || userData.user?.email;
+    if (!email) {
       setIsProcessing(false);
-      toast({ 
-        variant: "destructive", 
-        title: resources?.success ? "Capacity Exhausted" : "Service Unavailable", 
-        description: resources?.success ? "No active API keys available." : "Backend server unreachable." 
-      });
       return;
     }
 
-    const batchSize = resources.recommendedBatchSize || 25;
+    const resources = await fetchInitialBatchInfo();
+    const batchSize = resources?.recommendedBatchSize || 25;
     let currentIndex = resume ? lastIndex : 0;
 
     while (currentIndex < allLines.length && !stopRequestedRef.current) {
       const chunk = allLines.slice(currentIndex, currentIndex + batchSize);
-      
       try {
         await processChunk(email, chunk, allLines.length);
         currentIndex += chunk.length;
@@ -269,7 +262,6 @@ export default function LeadPulseDashboard() {
         console.error("Chunk processing failed:", err);
         break;
       }
-      if (stopRequestedRef.current) break;
     }
 
     setIsProcessing(false);
@@ -311,7 +303,8 @@ export default function LeadPulseDashboard() {
             setResults(prev => {
               const next = [...prev];
               data.forEach((item: any) => {
-                const targetIdx = next.findIndex(r => r.number === item.number && r.type === 'Pending');
+                const normItemNum = normalizeNum(item.number);
+                const targetIdx = next.findIndex(r => normalizeNum(r.number) === normItemNum && r.type === 'Pending');
                 
                 if (targetIdx !== -1) {
                   let finalStatus: any = 'invalid';
@@ -371,11 +364,6 @@ export default function LeadPulseDashboard() {
               requested: data.requested || chunk.length 
             });
             throw new Error('NO_CREDITS');
-          }
-          if (data.status === "ERROR" || data.error) {
-            await reader.cancel();
-            toast({ variant: "destructive", title: "Process Error", description: data.error || "A system error occurred" });
-            throw new Error(data.error || 'SERVER_ERROR');
           }
         } catch (e) {}
       }
@@ -500,14 +488,6 @@ export default function LeadPulseDashboard() {
                     <div className="space-y-2 p-4 bg-accent/5 rounded-xl border border-accent/10">
                       <div className="flex items-center justify-between mb-2">
                          <label className="text-[10px] font-black uppercase text-accent tracking-widest">Target Region</label>
-                         <TooltipProvider>
-                           <Tooltip>
-                             <TooltipTrigger asChild>
-                               <HelpCircle className="h-3 w-3 opacity-30 cursor-help" />
-                             </TooltipTrigger>
-                             <TooltipContent>Select the region closest to your target leads to minimize latency.</TooltipContent>
-                           </Tooltip>
-                         </TooltipProvider>
                       </div>
                       <Select value={region} onValueChange={(val) => { setRegion(val); localStorage.setItem('numcheckr_region', val); }}>
                         <SelectTrigger className="bg-black/40 border-white/10 h-10 rounded-xl">
@@ -585,7 +565,6 @@ export default function LeadPulseDashboard() {
                 <div className="flex justify-between items-end mb-3 px-1">
                    <div className="space-y-1">
                      <span className="text-[10px] font-black uppercase opacity-50 block">Validation Progress</span>
-                     <span className="text-xs font-black italic text-primary">{isProcessing ? 'Processing cycle...' : 'Awaiting start'}</span>
                    </div>
                    <span className="text-xl font-black italic text-primary">{progress}%</span>
                 </div>
@@ -723,7 +702,7 @@ export default function LeadPulseDashboard() {
       </Tabs>
 
       <Dialog open={showCreditModal.open} onOpenChange={(open) => setShowCreditModal(s => ({...s, open}))}>
-        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl p-0 overflow-hidden">
+        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl p-0 overflow-hidden" asChild={false}>
           <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
           <div className="p-8">
             <DialogHeader className="text-center">
