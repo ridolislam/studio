@@ -94,21 +94,29 @@ export default function LeadPulseDashboard() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef(false);
 
+  // Sync initial resources as soon as user enters the website
   useEffect(() => {
     setIsMounted(true);
-    const userStr = localStorage.getItem('user');
-    if (userStr) {
-      try {
-        const userData = JSON.parse(userStr);
-        setCredits(userData.credits || 0);
-      } catch(e) {}
-    }
-    const savedRegion = localStorage.getItem('numcheckr_region');
-    if (savedRegion) setRegion(savedRegion);
+    
+    const initialLoad = async () => {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        try {
+          const userData = JSON.parse(userStr);
+          setCredits(userData.credits || 0);
+        } catch(e) {}
+      }
+      const savedRegion = localStorage.getItem('numcheckr_region');
+      if (savedRegion) setRegion(savedRegion);
 
-    fetchInitialBatchInfo();
-    fetchHistory();
+      // Fetch batch info and history immediately on mount
+      fetchInitialBatchInfo();
+      fetchHistory();
+    };
 
+    initialLoad();
+
+    // Periodic check to keep system capacity updated in background
     const interval = setInterval(async () => {
       if (!isProcessing) {
         const res = await getActiveServer();
@@ -133,12 +141,17 @@ export default function LeadPulseDashboard() {
   }, [activeServer, isProcessing]);
 
   const fetchInitialBatchInfo = async () => {
-    const res = await getBatchInfo();
-    if (res.success) {
-      setBatchInfo(res);
-      setActiveServer(res.activeServer);
+    try {
+      const res = await getBatchInfo();
+      if (res.success) {
+        setBatchInfo(res);
+        setActiveServer(res.activeServer);
+        return res;
+      }
+    } catch (e) {
+      console.error("Batch info sync failed");
     }
-    return res;
+    return null;
   };
 
   const fetchAndSyncProfile = async () => {
@@ -222,6 +235,18 @@ export default function LeadPulseDashboard() {
     const allLines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (allLines.length === 0) return;
 
+    // Check if system info is ready (pre-fetched on mount)
+    if (!batchInfo) {
+      toast({ variant: "destructive", title: "System Initializing", description: "Please wait a moment for the server configuration to load." });
+      fetchInitialBatchInfo();
+      return;
+    }
+
+    if (batchInfo.keysAvailable === false) {
+      toast({ variant: "destructive", title: "Service Unavailable", description: "The active server is currently out of API keys." });
+      return;
+    }
+
     setIsProcessing(true);
     stopRequestedRef.current = false;
     
@@ -247,10 +272,11 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    const resources = await fetchInitialBatchInfo();
-    const batchSize = resources?.recommendedBatchSize || 25;
+    // USE PRE-FETCHED CYCLE INFO IMMEDIATELY - NO EXTRA AWAIT HERE
+    const batchSize = batchInfo.recommendedBatchSize || 25;
     let currentIndex = resume ? lastIndex : 0;
 
+    // Jumping straight into the processing loop
     while (currentIndex < allLines.length && !stopRequestedRef.current) {
       const chunk = allLines.slice(currentIndex, currentIndex + batchSize);
       try {
@@ -259,7 +285,7 @@ export default function LeadPulseDashboard() {
         setLastIndex(currentIndex);
       } catch (err: any) {
         if (err.message === 'NO_CREDITS' || err.name === 'AbortError') break;
-        console.error("Chunk processing failed:", err);
+        console.error("Batch processing failed:", err);
         break;
       }
     }
@@ -278,7 +304,7 @@ export default function LeadPulseDashboard() {
       signal: abortControllerRef.current.signal
     });
 
-    if (!response.body) throw new Error("Stream response body is empty");
+    if (!response.body) throw new Error("Connection failed");
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -344,8 +370,8 @@ export default function LeadPulseDashboard() {
                 }
               });
               
-              const processed = next.filter(r => r.type !== 'Pending').length;
-              setProgress(Math.round((processed / totalCount) * 100));
+              const processedCount = next.filter(r => r.type !== 'Pending').length;
+              setProgress(Math.round((processedCount / totalCount) * 100));
               return next;
             });
             setLiveJson(data[data.length - 1]);
@@ -394,7 +420,7 @@ export default function LeadPulseDashboard() {
     }
 
     if (filtered.length === 0) {
-      toast({ variant: "destructive", title: "Empty Export", description: "No data matches the selected filter." });
+      toast({ variant: "destructive", title: "Empty Export", description: "No data available for this category." });
       return;
     }
 
@@ -411,7 +437,7 @@ export default function LeadPulseDashboard() {
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `results_${filter || 'full'}_${new Date().getTime()}.xlsx`);
+    XLSX.writeFile(wb, `numcheckr_results_${filter || 'all'}_${new Date().getTime()}.xlsx`);
   };
 
   if (!isMounted) return null;
@@ -431,7 +457,7 @@ export default function LeadPulseDashboard() {
                  activeServer === 2 ? "bg-accent" : "bg-primary"
                )} />
                <span className="text-[9px] font-black uppercase opacity-60">
-                 Active Core: {activeServer === 2 ? "Server 2 (PV v4)" : "Server 1 (Numverify)"}
+                 System: {activeServer === 2 ? "Core 2 (PV v4)" : "Core 1 (Standard)"}
                </span>
             </div>
           </div>
@@ -439,15 +465,15 @@ export default function LeadPulseDashboard() {
           <div className="flex items-center gap-4 bg-primary/5 px-6 py-3 rounded-2xl border border-primary/20">
             {batchInfo && (
               <div className="hidden md:flex flex-col items-start mr-4 border-r border-primary/20 pr-4">
-                <span className="text-[9px] font-black uppercase text-primary/60">System Capacity</span>
+                <span className="text-[9px] font-black uppercase text-primary/60">Cycle Units</span>
                 <span className="text-xs font-black italic flex items-center gap-1">
                   <Activity className="h-3 w-3 text-green-500" /> 
-                  {batchInfo.recommendedBatchSize} units/cycle
+                  {batchInfo.recommendedBatchSize} units
                 </span>
               </div>
             )}
             <div className="flex flex-col items-end">
-              <span className="text-[10px] font-black uppercase text-primary/70">Balance</span>
+              <span className="text-[10px] font-black uppercase text-primary/70">Wallet</span>
               <span className="text-2xl font-black italic">{Math.max(0, credits)}</span>
             </div>
             <Button variant="ghost" size="icon" onClick={fetchAndSyncProfile} disabled={isSyncing} className="rounded-xl">
@@ -471,7 +497,7 @@ export default function LeadPulseDashboard() {
                     onClick={() => fileInputRef.current?.click()}
                     className="h-8 rounded-lg text-[10px] font-black uppercase bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20"
                   >
-                    <Upload className="h-3 w-3 mr-1" /> Upload
+                    <Upload className="h-3 w-3 mr-1" /> Import
                   </Button>
                   <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} />
                 </CardHeader>
@@ -487,16 +513,16 @@ export default function LeadPulseDashboard() {
                   {activeServer === 2 && (
                     <div className="space-y-2 p-4 bg-accent/5 rounded-xl border border-accent/10">
                       <div className="flex items-center justify-between mb-2">
-                         <label className="text-[10px] font-black uppercase text-accent tracking-widest">Target Region</label>
+                         <label className="text-[10px] font-black uppercase text-accent tracking-widest">Global Region</label>
                       </div>
                       <Select value={region} onValueChange={(val) => { setRegion(val); localStorage.setItem('numcheckr_region', val); }}>
                         <SelectTrigger className="bg-black/40 border-white/10 h-10 rounded-xl">
                           <SelectValue placeholder="Region 1" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="1">Region 1 (East)</SelectItem>
-                          <SelectItem value="2">Region 2 (Central)</SelectItem>
-                          <SelectItem value="3">Region 3 (West)</SelectItem>
+                          <SelectItem value="1">Region 1 (Fast)</SelectItem>
+                          <SelectItem value="2">Region 2 (Stable)</SelectItem>
+                          <SelectItem value="3">Region 3 (Balanced)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -521,10 +547,10 @@ export default function LeadPulseDashboard() {
               <Card className="bg-black/40 rounded-2xl border-white/5">
                 <div className="p-4 border-b border-white/5 flex items-center gap-2">
                   <Code2 className="h-3 w-3 text-primary" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Live Metadata Stream</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Metadata Flow</span>
                 </div>
                 <ScrollArea className="h-[150px] p-4 font-code text-[10px] text-primary/80">
-                  {liveJson ? <pre className="whitespace-pre-wrap">{JSON.stringify(liveJson, null, 2)}</pre> : <div className="opacity-20 text-center pt-6 italic uppercase">Awaiting connection...</div>}
+                  {liveJson ? <pre className="whitespace-pre-wrap">{JSON.stringify(liveJson, null, 2)}</pre> : <div className="opacity-20 text-center pt-6 italic uppercase">Awaiting activity...</div>}
                 </ScrollArea>
               </Card>
             </div>
@@ -564,7 +590,7 @@ export default function LeadPulseDashboard() {
               <div className="bg-card/40 p-5 rounded-2xl border border-white/5 shadow-inner">
                 <div className="flex justify-between items-end mb-3 px-1">
                    <div className="space-y-1">
-                     <span className="text-[10px] font-black uppercase opacity-50 block">Validation Progress</span>
+                     <span className="text-[10px] font-black uppercase opacity-50 block">Live Progress</span>
                    </div>
                    <span className="text-xl font-black italic text-primary">{progress}%</span>
                 </div>
@@ -575,7 +601,7 @@ export default function LeadPulseDashboard() {
                 <div className="p-4 border-b border-white/5 bg-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
                   <div className="flex items-center gap-2">
                     <div className={cn("h-2 w-2 rounded-full", isProcessing ? "bg-green-500 animate-pulse" : "bg-primary")} />
-                    <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Real-time Table</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Real-time Stream</span>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" className="h-9 rounded-xl text-[9px] font-black uppercase border-white/5 hover:bg-green-500/10 hover:text-green-500" onClick={() => downloadResults('valid')}>Export Valid</Button>
@@ -588,14 +614,14 @@ export default function LeadPulseDashboard() {
                       <TableRow className="border-white/5">
                         <TableHead className="px-8 text-[10px] font-black uppercase tracking-widest">Phone Number</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Status / Type</TableHead>
-                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Location Info</TableHead>
+                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Location</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
                         <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Core</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {results.length === 0 ? (
-                        <TableRow><TableCell colSpan={5} className="h-80 text-center opacity-20 font-black italic uppercase tracking-[0.2em]">Ready for verification</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={5} className="h-80 text-center opacity-20 font-black italic uppercase tracking-[0.2em]">Awaiting Input Queue</TableCell></TableRow>
                       ) : (
                         results.map(res => (
                           <TableRow 
@@ -660,21 +686,21 @@ export default function LeadPulseDashboard() {
         <TabsContent value="history">
           <Card className="border-white/5 bg-card/60 rounded-3xl overflow-hidden shadow-2xl">
              <div className="p-6 border-b border-white/5 bg-white/5 flex items-center justify-between">
-               <h3 className="text-xl font-black italic uppercase tracking-tighter">Global Activity Stream</h3>
-               <Button variant="ghost" size="sm" onClick={fetchHistory} className="h-8 rounded-lg font-black uppercase text-[10px]"><RefreshCcw className="h-3 w-3 mr-2" /> Refresh Logs</Button>
+               <h3 className="text-xl font-black italic uppercase tracking-tighter">Activity History</h3>
+               <Button variant="ghost" size="sm" onClick={fetchHistory} className="h-8 rounded-lg font-black uppercase text-[10px]"><RefreshCcw className="h-3 w-3 mr-2" /> Refresh</Button>
              </div>
              <div className="overflow-x-auto">
                <Table>
                  <TableHeader className="bg-muted/10">
                    <TableRow className="border-white/5">
-                     <TableHead className="px-8 py-6 text-[10px] font-black uppercase tracking-widest">Timestamp</TableHead>
-                     <TableHead className="text-[10px] font-black uppercase tracking-widest">Transaction Details</TableHead>
-                     <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Balance Impact</TableHead>
+                     <TableHead className="px-8 py-6 text-[10px] font-black uppercase tracking-widest">Date</TableHead>
+                     <TableHead className="text-[10px] font-black uppercase tracking-widest">Details</TableHead>
+                     <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Impact</TableHead>
                    </TableRow>
                  </TableHeader>
                  <TableBody>
                    {history.length === 0 ? (
-                     <TableRow><TableCell colSpan={3} className="h-40 text-center opacity-20 italic font-black uppercase">No recent activity detected</TableCell></TableRow>
+                     <TableRow><TableCell colSpan={3} className="h-40 text-center opacity-20 italic font-black uppercase">No logs detected</TableCell></TableRow>
                    ) : (
                      history.map((item, i) => (
                        <TableRow key={i} className="h-20 border-white/5 hover:bg-white/5 transition-colors">
@@ -682,13 +708,13 @@ export default function LeadPulseDashboard() {
                          <TableCell>
                             <div className="flex flex-col">
                               <span className="font-black italic text-sm">{item.description}</span>
-                              <Badge variant="outline" className="w-fit text-[8px] font-black uppercase mt-1 border-white/10 opacity-50">{item.type || 'VALIDATION_TASK'}</Badge>
+                              <Badge variant="outline" className="w-fit text-[8px] font-black uppercase mt-1 border-white/10 opacity-50">{item.type || 'TASK'}</Badge>
                             </div>
                          </TableCell>
                          <TableCell className="text-right px-8">
                            <div className="flex flex-col items-end">
                              <span className={cn("text-xl font-black italic", item.type === 'Payment' ? 'text-green-500' : 'text-primary')}>{item.amount || '0'}</span>
-                             <span className="text-[8px] font-black uppercase opacity-30">Credits</span>
+                             <span className="text-[8px] font-black uppercase opacity-30">Units</span>
                            </div>
                          </TableCell>
                        </TableRow>
@@ -709,24 +735,24 @@ export default function LeadPulseDashboard() {
               <div className="mx-auto w-20 h-20 bg-destructive/10 rounded-3xl flex items-center justify-center mb-6 border border-destructive/20">
                 <ShieldAlert className="h-10 w-10 text-destructive" />
               </div>
-              <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Insufficient Credits</DialogTitle>
+              <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter">Credit Depleted</DialogTitle>
               <DialogDescription asChild>
                 <div className="text-sm font-bold text-muted-foreground uppercase py-4 space-y-2">
                   <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                    <span>Task Request:</span>
+                    <span>Requested:</span>
                     <span className="text-white">{showCreditModal.requested} Units</span>
                   </div>
                   <div className="flex justify-between items-center bg-white/5 p-4 rounded-2xl border border-white/5">
-                    <span>Available Wallet:</span>
+                    <span>Available:</span>
                     <span className="text-destructive">{showCreditModal.available} Units</span>
                   </div>
-                  <p className="pt-2 text-[10px] opacity-60 normal-case italic text-center">Validation cycle stopped. Please recharge to continue processing the queue.</p>
+                  <p className="pt-2 text-[10px] opacity-60 normal-case italic text-center">Batch processing halted. Please top up to resume.</p>
                 </div>
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="sm:justify-center mt-6">
               <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg hover:shadow-primary/20 transition-all">
-                <CreditCard className="mr-2 h-6 w-6" /> TOP UP WALLET
+                <CreditCard className="mr-2 h-6 w-6" /> RECHARGE NOW
               </Button>
             </DialogFooter>
           </div>
