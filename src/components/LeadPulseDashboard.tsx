@@ -106,9 +106,8 @@ export default function LeadPulseDashboard() {
     const savedRegion = localStorage.getItem('numcheckr_region');
     if (savedRegion) setRegion(savedRegion);
 
-    fetchAndSyncProfile();
-    fetchHistory();
     fetchInitialBatchInfo();
+    fetchHistory();
 
     const interval = setInterval(async () => {
       if (!isProcessing) {
@@ -244,8 +243,7 @@ export default function LeadPulseDashboard() {
       setLastIndex(0);
     }
 
-    // Immediate Resource Check
-    const resources = await getBatchInfo();
+    const resources = await fetchInitialBatchInfo();
     if (!resources?.success || resources?.keysAvailable === false) {
       setIsProcessing(false);
       toast({ 
@@ -259,7 +257,6 @@ export default function LeadPulseDashboard() {
     const batchSize = resources.recommendedBatchSize || 25;
     let currentIndex = resume ? lastIndex : 0;
 
-    // Start processing batches one by one
     while (currentIndex < allLines.length && !stopRequestedRef.current) {
       const chunk = allLines.slice(currentIndex, currentIndex + batchSize);
       
@@ -310,12 +307,10 @@ export default function LeadPulseDashboard() {
         try {
           const data = JSON.parse(dataStr);
 
-          // Handle array of items (Normal processing result)
           if (Array.isArray(data)) {
             setResults(prev => {
               const next = [...prev];
               data.forEach((item: any) => {
-                // Match items by number
                 const targetIdx = next.findIndex(r => r.number === item.number && r.type === 'Pending');
                 
                 if (targetIdx !== -1) {
@@ -364,7 +359,6 @@ export default function LeadPulseDashboard() {
             continue;
           }
 
-          // Handle Status Objects
           if (data.status === "DONE" || data.status === "PAUSED") {
             await reader.cancel();
             return;
@@ -383,9 +377,7 @@ export default function LeadPulseDashboard() {
             toast({ variant: "destructive", title: "Process Error", description: data.error || "A system error occurred" });
             throw new Error(data.error || 'SERVER_ERROR');
           }
-        } catch (e) {
-          // JSON parse errors usually happen on partial stream chunks
-        }
+        } catch (e) {}
       }
     }
   };
@@ -399,11 +391,24 @@ export default function LeadPulseDashboard() {
     setIsProcessing(false);
   };
 
-  const downloadResults = (filter?: 'valid' | 'invalid' | 'failed') => {
-    let filtered = results;
-    if (filter === 'valid') filtered = results.filter(r => r.status === 'success');
-    else if (filter === 'invalid') filtered = results.filter(r => r.status === 'invalid' || r.status === 'fake');
-    else if (filter === 'failed') filtered = results.filter(r => r.status === 'failed');
+  const downloadResults = (filter?: string) => {
+    let filtered = results.filter(r => r.type !== 'Pending');
+    
+    if (filter) {
+      if (filter === 'valid') filtered = filtered.filter(r => r.status === 'success');
+      else if (filter === 'invalid') filtered = filtered.filter(r => r.status === 'invalid');
+      else if (filter === 'fake') filtered = filtered.filter(r => r.status === 'fake');
+      else if (filter === 'failed') filtered = filtered.filter(r => r.status === 'failed');
+      else if (filter === 'mobile') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('mobile'));
+      else if (filter === 'landline') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('landline'));
+      else if (filter === 'voip') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('voip'));
+      else if (filter === 'toll_free') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('toll_free'));
+    }
+
+    if (filtered.length === 0) {
+      toast({ variant: "destructive", title: "Empty Export", description: "No data matches the selected filter." });
+      return;
+    }
 
     const ws = XLSX.utils.json_to_sheet(filtered.map(r => ({
       Number: r.number,
@@ -418,7 +423,7 @@ export default function LeadPulseDashboard() {
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `results_${new Date().getTime()}.xlsx`);
+    XLSX.writeFile(wb, `results_${filter || 'full'}_${new Date().getTime()}.xlsx`);
   };
 
   if (!isMounted) return null;
@@ -546,31 +551,31 @@ export default function LeadPulseDashboard() {
 
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
-                <Card className="bg-green-500/5 p-3 rounded-xl border border-green-500/10 text-center">
+                <Card onClick={() => downloadResults('mobile')} className="bg-green-500/5 p-3 rounded-xl border border-green-500/10 text-center cursor-pointer hover:scale-105 active:scale-95 transition-all">
                   <p className="text-[9px] font-black uppercase text-green-500 mb-1">Mobile</p>
                   <h3 className="text-2xl font-black italic">{counts.mobile}</h3>
                 </Card>
-                <Card className="bg-blue-500/5 p-3 rounded-xl border border-blue-500/10 text-center">
+                <Card onClick={() => downloadResults('landline')} className="bg-blue-500/5 p-3 rounded-xl border border-blue-500/10 text-center cursor-pointer hover:scale-105 active:scale-95 transition-all">
                   <p className="text-[9px] font-black uppercase text-blue-500 mb-1">Landline</p>
                   <h3 className="text-2xl font-black italic">{counts.landline}</h3>
                 </Card>
-                <Card className="bg-purple-500/5 p-3 rounded-xl border border-purple-500/10 text-center">
+                <Card onClick={() => downloadResults('voip')} className="bg-purple-500/5 p-3 rounded-xl border border-purple-500/10 text-center cursor-pointer hover:scale-105 active:scale-95 transition-all">
                   <p className="text-[9px] font-black uppercase text-purple-500 mb-1">VOIP</p>
                   <h3 className="text-2xl font-black italic">{counts.voip}</h3>
                 </Card>
-                <Card className="bg-cyan-500/5 p-3 rounded-xl border border-cyan-500/10 text-center">
+                <Card onClick={() => downloadResults('toll_free')} className="bg-cyan-500/5 p-3 rounded-xl border border-cyan-500/10 text-center cursor-pointer hover:scale-105 active:scale-95 transition-all">
                   <p className="text-[9px] font-black uppercase text-cyan-500 mb-1">Toll Free</p>
                   <h3 className="text-2xl font-black italic">{counts.toll_free}</h3>
                 </Card>
-                <Card className="bg-amber-500/5 p-3 rounded-xl border border-amber-500/10 text-center">
+                <Card onClick={() => downloadResults('fake')} className="bg-amber-500/5 p-3 rounded-xl border border-amber-500/10 text-center cursor-pointer hover:scale-105 active:scale-95 transition-all">
                   <p className="text-[9px] font-black uppercase text-amber-500 mb-1">Fake</p>
                   <h3 className="text-2xl font-black italic">{counts.fake}</h3>
                 </Card>
-                <Card className="bg-red-500/5 p-3 rounded-xl border border-red-500/10 text-center">
+                <Card onClick={() => downloadResults('invalid')} className="bg-red-500/5 p-3 rounded-xl border border-red-500/10 text-center cursor-pointer hover:scale-105 active:scale-95 transition-all">
                   <p className="text-[9px] font-black uppercase text-red-500 mb-1">Invalid</p>
                   <h3 className="text-2xl font-black italic">{counts.invalid}</h3>
                 </Card>
-                <Card className="bg-white/5 p-3 rounded-xl border border-white/10 text-center opacity-60">
+                <Card onClick={() => downloadResults('failed')} className="bg-white/5 p-3 rounded-xl border border-white/10 text-center cursor-pointer opacity-60 hover:scale-105 active:scale-95 transition-all">
                   <p className="text-[9px] font-black uppercase text-muted-foreground mb-1">Failed</p>
                   <h3 className="text-2xl font-black italic">{counts.failed}</h3>
                 </Card>
@@ -751,4 +756,3 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
-
