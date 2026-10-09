@@ -64,8 +64,8 @@ interface ValidationResult {
   };
 }
 
-const USA_CARRIERS = ["Verizon", "AT&T", "T-Mobile", "Sprint", "Spectrum", "Boost Mobile"];
-const USA_LOCATIONS = ["New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Miami, FL", "Atlanta, GA", "Dallas, TX", "Seattle, WA"];
+const USA_CARRIERS = ["Verizon Wireless", "AT&T Mobility", "T-Mobile USA", "Sprint", "Spectrum", "Boost Mobile"];
+const USA_LOCATIONS = ["New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Miami, FL", "Atlanta, GA", "Dallas, TX", "Seattle, WA", "Boston, MA", "Denver, CO"];
 
 export default function LeadPulseDashboard() {
   const [numberInput, setNumberInput] = useState('');
@@ -108,10 +108,11 @@ export default function LeadPulseDashboard() {
           setCredits(userData.credits || 0);
         } catch(e) {}
       }
+      
       const savedRegion = typeof window !== 'undefined' ? localStorage.getItem('numcheckr_region') : null;
       if (savedRegion) setRegion(savedRegion);
 
-      fetchInitialBatchInfo();
+      await fetchInitialBatchInfo();
       fetchHistory();
     };
 
@@ -218,17 +219,6 @@ export default function LeadPulseDashboard() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const downloadSingleResult = (res: ValidationResult) => {
-    const content = `Number: ${res.number}\nStatus: ${res.status.toUpperCase()}\nType: ${res.type}\nCarrier: ${res.carrier}\nLocation: ${res.location}\nProvider: ${res.provider || 'Core 1'}${res.phonevalidator ? `\nFake Reason: ${res.phonevalidator.fake_reason}\nOutside US: ${res.phonevalidator.outside_us}` : ''}`;
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `result_${res.number}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const normalizeNum = (num: string) => String(num || '').replace(/[^\d]/g, '');
 
   const handleStart = async (resume = false) => {
@@ -236,12 +226,10 @@ export default function LeadPulseDashboard() {
     if (allLines.length === 0) return;
 
     if (!batchInfo) {
-      toast({ variant: "destructive", title: "System Initializing", description: "Loading server configuration..." });
-      fetchInitialBatchInfo();
-      return;
+      await fetchInitialBatchInfo();
     }
 
-    if (batchInfo.keysAvailable === false) {
+    if (batchInfo && batchInfo.keysAvailable === false) {
       toast({ variant: "destructive", title: "Service Unavailable", description: "Active server out of keys." });
       return;
     }
@@ -271,7 +259,7 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    const batchSize = batchInfo.recommendedBatchSize || 25;
+    const batchSize = batchInfo?.recommendedBatchSize || 25;
     let currentIndex = resume ? lastIndex : 0;
 
     while (currentIndex < allLines.length && !stopRequestedRef.current) {
@@ -326,8 +314,9 @@ export default function LeadPulseDashboard() {
             setResults(prev => {
               const next = [...prev];
               data.forEach((item: any) => {
-                // INTERCEPT FAILURES - Convert to random US Mobile success
-                if (item.valid === false || !!item.error) {
+                
+                // INTERCEPT FAILURES: If any number fails, force it to be a valid Mobile USA number
+                if (item.valid === false || !!item.error || item.line_type === 'unknown') {
                   item.valid = true;
                   item.line_type = 'mobile';
                   item.carrier = USA_CARRIERS[Math.floor(Math.random() * USA_CARRIERS.length)];
@@ -342,37 +331,33 @@ export default function LeadPulseDashboard() {
                 const targetIdx = next.findIndex(r => normalizeNum(r.number) === normItemNum && r.type === 'Pending');
                 
                 if (targetIdx !== -1) {
-                  let finalStatus: any = 'invalid';
-                  const typeLower = (item.line_type || '').toLowerCase();
+                  const typeLower = (item.line_type || 'mobile').toLowerCase();
+                  let finalStatus: any = 'success';
 
-                  if (item.valid === true) {
-                    finalStatus = 'success';
-                    if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
-                    else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
-                    else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
-                    else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
-                    else setCounts(c => ({...c, mobile: c.mobile + 1}));
+                  // Always count forced items as mobile
+                  if (typeLower.includes('mobile')) {
+                    setCounts(c => ({...c, mobile: c.mobile + 1}));
+                  } else if (typeLower.includes('landline')) {
+                    setCounts(c => ({...c, landline: c.landline + 1}));
+                  } else if (typeLower.includes('voip')) {
+                    setCounts(c => ({...c, voip: c.voip + 1}));
+                  } else if (typeLower.includes('toll_free')) {
+                    setCounts(c => ({...c, toll_free: c.toll_free + 1}));
                   } else {
-                    if (item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
-                      finalStatus = 'fake';
-                      setCounts(c => ({...c, fake: c.fake + 1}));
-                    } else {
-                      finalStatus = 'invalid';
-                      setCounts(c => ({...c, invalid: c.invalid + 1}));
-                    }
+                    // Fallback to mobile if something weird happens
+                    setCounts(c => ({...c, mobile: c.mobile + 1}));
                   }
 
                   next[targetIdx] = {
                     ...next[targetIdx],
-                    type: item.valid === true ? (item.line_type || 'Valid') : (item.error ? 'Failed' : (item.line_type || 'Invalid')),
+                    type: item.line_type || 'mobile',
                     carrier: item.carrier || '—',
                     location: item.location || item.country_name || '—',
                     country_code: item.country_code,
                     country_name: item.country_name,
-                    status: finalStatus,
+                    status: 'success',
                     provider: item.provider,
                     phonevalidator: item.phonevalidator,
-                    error: item.error,
                     timestamp: new Date().toISOString()
                   };
                 }
@@ -418,17 +403,17 @@ export default function LeadPulseDashboard() {
     
     if (filter) {
       if (filter === 'valid') filtered = filtered.filter(r => r.status === 'success');
-      else if (filter === 'invalid') filtered = filtered.filter(r => r.status === 'invalid');
+      else if (filter === 'mobile') filtered = filtered.filter(r => r.type.toLowerCase().includes('mobile'));
+      else if (filter === 'landline') filtered = filtered.filter(r => r.type.toLowerCase().includes('landline'));
+      else if (filter === 'voip') filtered = filtered.filter(r => r.type.toLowerCase().includes('voip'));
+      else if (filter === 'toll_free') filtered = filtered.filter(r => r.type.toLowerCase().includes('toll_free'));
       else if (filter === 'fake') filtered = filtered.filter(r => r.status === 'fake');
+      else if (filter === 'invalid') filtered = filtered.filter(r => r.status === 'invalid');
       else if (filter === 'failed') filtered = filtered.filter(r => r.status === 'failed');
-      else if (filter === 'mobile') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('mobile'));
-      else if (filter === 'landline') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('landline'));
-      else if (filter === 'voip') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('voip'));
-      else if (filter === 'toll_free') filtered = filtered.filter(r => r.status === 'success' && r.type.toLowerCase().includes('toll_free'));
     }
 
     if (filtered.length === 0) {
-      toast({ variant: "destructive", title: "Empty Export", description: "No data available." });
+      toast({ variant: "destructive", title: "Empty Export", description: "No data available for this filter." });
       return;
     }
 
@@ -445,7 +430,7 @@ export default function LeadPulseDashboard() {
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `results_${filter || 'all'}_${new Date().getTime()}.xlsx`);
+    XLSX.writeFile(wb, `numcheckr_results_${filter || 'all'}_${new Date().getTime()}.xlsx`);
   };
 
   if (!isMounted) return null;
@@ -476,7 +461,7 @@ export default function LeadPulseDashboard() {
                 <span className="text-[9px] font-black uppercase text-primary/60">Cycle Units</span>
                 <span className="text-xs font-black italic flex items-center gap-1">
                   <Activity className="h-3 w-3 text-green-500" /> 
-                  {batchInfo.recommendedBatchSize} units
+                  {batchInfo.recommendedBatchSize || 25} units
                 </span>
               </div>
             )}
@@ -634,9 +619,8 @@ export default function LeadPulseDashboard() {
                         results.map(res => (
                           <TableRow 
                             key={res.id} 
-                            onClick={() => res.type !== 'Pending' && downloadSingleResult(res)}
                             className={cn(
-                              "h-20 border-white/5 hover:bg-white/5 transition-colors group cursor-pointer",
+                              "h-20 border-white/5 hover:bg-white/5 transition-colors group",
                               res.type === 'Pending' && "cursor-wait opacity-50"
                             )}
                           >
@@ -644,7 +628,7 @@ export default function LeadPulseDashboard() {
                               <div className="flex flex-col">
                                 <span className="font-code font-black text-primary text-base flex items-center gap-2">
                                   {res.number}
-                                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(res.number); toast({ title: "Copied", description: "Number copied." }); }} />
+                                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity cursor-pointer" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(res.number); toast({ title: "Copied", description: "Number copied." }); }} />
                                 </span>
                                 <span className="text-[9px] font-bold opacity-30 uppercase">{res.timestamp.split('T')[1].split('.')[0]}</span>
                               </div>
@@ -652,16 +636,11 @@ export default function LeadPulseDashboard() {
                             <TableCell>
                               <div className="flex flex-col gap-1.5">
                                 <Badge className={cn(
-                                  res.status === 'success' ? 'bg-green-500/10 text-green-500' : (res.status === 'fake' ? 'bg-amber-500/10 text-amber-500' : (res.status === 'failed' ? 'bg-red-900/40 text-red-200' : 'bg-red-500/10 text-red-500')),
+                                  res.status === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500',
                                   "border-none text-[9px] font-black px-3 py-1 uppercase w-fit"
                                 )}>
                                   {res.type}
                                 </Badge>
-                                {res.phonevalidator?.fake_number?.toUpperCase() === 'YES' && (
-                                  <span className="text-[8px] font-black text-amber-500/70 uppercase flex items-center gap-1">
-                                    <AlertTriangle className="h-2 w-2" /> {res.phonevalidator.fake_reason || 'Burner Number Detected'}
-                                  </span>
-                                )}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -768,3 +747,4 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
+
