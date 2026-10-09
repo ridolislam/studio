@@ -94,34 +94,31 @@ export default function LeadPulseDashboard() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef(false);
 
-  // Sync initial resources as soon as user enters the website
   useEffect(() => {
     setIsMounted(true);
     
     const initialLoad = async () => {
-      const userStr = localStorage.getItem('user');
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
       if (userStr) {
         try {
           const userData = JSON.parse(userStr);
           setCredits(userData.credits || 0);
         } catch(e) {}
       }
-      const savedRegion = localStorage.getItem('numcheckr_region');
+      const savedRegion = typeof window !== 'undefined' ? localStorage.getItem('numcheckr_region') : null;
       if (savedRegion) setRegion(savedRegion);
 
-      // Fetch batch info and history immediately on mount
       fetchInitialBatchInfo();
       fetchHistory();
     };
 
     initialLoad();
 
-    // Periodic check to keep system capacity updated in background
     const interval = setInterval(async () => {
       if (!isProcessing) {
         const res = await getActiveServer();
         if (res.success && res.activeServer !== activeServer) {
-          setActiveServer(res.activeServer);
+          setActiveServer(res.activeServer as 1 | 2);
           fetchInitialBatchInfo();
         }
       }
@@ -155,7 +152,7 @@ export default function LeadPulseDashboard() {
   };
 
   const fetchAndSyncProfile = async () => {
-    const userStr = localStorage.getItem('user');
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
     if (!userStr) return;
     try {
       const userData = JSON.parse(userStr);
@@ -175,7 +172,7 @@ export default function LeadPulseDashboard() {
   };
 
   const fetchHistory = async () => {
-    const userStr = localStorage.getItem('user');
+    const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
     if (!userStr) return;
     try {
       const userData = JSON.parse(userStr);
@@ -235,15 +232,14 @@ export default function LeadPulseDashboard() {
     const allLines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (allLines.length === 0) return;
 
-    // Check if system info is ready (pre-fetched on mount)
     if (!batchInfo) {
-      toast({ variant: "destructive", title: "System Initializing", description: "Please wait a moment for the server configuration to load." });
+      toast({ variant: "destructive", title: "System Initializing", description: "Loading server configuration..." });
       fetchInitialBatchInfo();
       return;
     }
 
     if (batchInfo.keysAvailable === false) {
-      toast({ variant: "destructive", title: "Service Unavailable", description: "The active server is currently out of API keys." });
+      toast({ variant: "destructive", title: "Service Unavailable", description: "Active server out of keys." });
       return;
     }
 
@@ -272,11 +268,9 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // USE PRE-FETCHED CYCLE INFO IMMEDIATELY - NO EXTRA AWAIT HERE
     const batchSize = batchInfo.recommendedBatchSize || 25;
     let currentIndex = resume ? lastIndex : 0;
 
-    // Jumping straight into the processing loop
     while (currentIndex < allLines.length && !stopRequestedRef.current) {
       const chunk = allLines.slice(currentIndex, currentIndex + batchSize);
       try {
@@ -336,27 +330,38 @@ export default function LeadPulseDashboard() {
                   let finalStatus: any = 'invalid';
                   const typeLower = (item.line_type || '').toLowerCase();
 
-                  if (item.error) {
+                  // --- REVISED STATUS LOGIC: Prioritize valid field over error string for Server 1 ---
+                  if (item.valid !== undefined && item.valid !== null) {
+                    if (item.valid === true) {
+                      finalStatus = 'success';
+                      if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
+                      else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
+                      else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
+                      else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
+                      else setCounts(c => ({...c, mobile: c.mobile + 1}));
+                    } else {
+                      // Result is false (invalid number)
+                      if (item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
+                        finalStatus = 'fake';
+                        setCounts(c => ({...c, fake: c.fake + 1}));
+                      } else {
+                        finalStatus = 'invalid';
+                        setCounts(c => ({...c, invalid: c.invalid + 1}));
+                      }
+                    }
+                  } else if (item.error) {
+                    // Only mark as failed if there is an error AND no valid field present
                     finalStatus = 'failed';
                     setCounts(c => ({...c, failed: c.failed + 1}));
-                  } else if (item.valid === true) {
-                    finalStatus = 'success';
-                    if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
-                    else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
-                    else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
-                    else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
-                    else setCounts(c => ({...c, mobile: c.mobile + 1}));
-                  } else if (item.valid === false && item.phonevalidator?.fake_number?.toUpperCase() === 'YES') {
-                    finalStatus = 'fake';
-                    setCounts(c => ({...c, fake: c.fake + 1}));
                   } else {
+                    // Fallback to invalid if no status found
                     finalStatus = 'invalid';
                     setCounts(c => ({...c, invalid: c.invalid + 1}));
                   }
 
                   next[targetIdx] = {
                     ...next[targetIdx],
-                    type: item.error ? 'Failed' : (item.line_type || 'Invalid'),
+                    type: item.valid === true ? (item.line_type || 'Valid') : (item.error ? 'Failed' : (item.line_type || 'Invalid')),
                     carrier: item.carrier || '—',
                     location: item.location || item.country_name || '—',
                     country_code: item.country_code,
@@ -420,7 +425,7 @@ export default function LeadPulseDashboard() {
     }
 
     if (filtered.length === 0) {
-      toast({ variant: "destructive", title: "Empty Export", description: "No data available for this category." });
+      toast({ variant: "destructive", title: "Empty Export", description: "No data available." });
       return;
     }
 
@@ -437,7 +442,7 @@ export default function LeadPulseDashboard() {
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `numcheckr_results_${filter || 'all'}_${new Date().getTime()}.xlsx`);
+    XLSX.writeFile(wb, `results_${filter || 'all'}_${new Date().getTime()}.xlsx`);
   };
 
   if (!isMounted) return null;
@@ -608,7 +613,7 @@ export default function LeadPulseDashboard() {
                     <Button size="sm" variant="outline" className="h-9 rounded-xl text-[9px] font-black uppercase border-white/5 hover:bg-primary/10 hover:text-primary" onClick={() => downloadResults()}>Full Export</Button>
                   </div>
                 </div>
-                <div className="overflow-x-auto max-h-[600px] scrollbar-thin scrollbar-thumb-white/10">
+                <div className="overflow-x-auto max-h-[600px]">
                   <Table>
                     <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-md">
                       <TableRow className="border-white/5">
@@ -636,7 +641,7 @@ export default function LeadPulseDashboard() {
                               <div className="flex flex-col">
                                 <span className="font-code font-black text-primary text-base flex items-center gap-2">
                                   {res.number}
-                                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(res.number); toast({ title: "Copied", description: "Number copied to clipboard." }); }} />
+                                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-40 hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(res.number); toast({ title: "Copied", description: "Number copied." }); }} />
                                 </span>
                                 <span className="text-[9px] font-bold opacity-30 uppercase">{res.timestamp.split('T')[1].split('.')[0]}</span>
                               </div>
@@ -728,7 +733,7 @@ export default function LeadPulseDashboard() {
       </Tabs>
 
       <Dialog open={showCreditModal.open} onOpenChange={(open) => setShowCreditModal(s => ({...s, open}))}>
-        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl p-0 overflow-hidden" asChild={false}>
+        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-md shadow-2xl p-0 overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
           <div className="p-8">
             <DialogHeader className="text-center">
@@ -746,7 +751,6 @@ export default function LeadPulseDashboard() {
                     <span>Available:</span>
                     <span className="text-destructive">{showCreditModal.available} Units</span>
                   </div>
-                  <p className="pt-2 text-[10px] opacity-60 normal-case italic text-center">Batch processing halted. Please top up to resume.</p>
                 </div>
               </DialogDescription>
             </DialogHeader>
