@@ -217,19 +217,24 @@ export default function LeadPulseDashboard() {
       return;
     }
 
+    // Use fetched values or fallbacks
     const batchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
+    
+    // Divide into batches
     const batches = [];
     for (let i = 0; i < allNumbers.length; i += batchSize) {
       batches.push(allNumbers.slice(i, i + batchSize));
     }
 
+    // Refresh batch info in background
     fetchBatchInfo();
 
     let batchIdx = 0;
     let completedCount = 0;
     const total = allNumbers.length;
 
+    // Worker function for parallel execution
     const runWorker = async () => {
       while (batchIdx < batches.length && !stopRequestedRef.current) {
         const currentBatchIdx = batchIdx++;
@@ -246,6 +251,7 @@ export default function LeadPulseDashboard() {
       }
     };
 
+    // Spin up workers based on concurrency
     const workers = [];
     for (let i = 0; i < Math.min(concurrency, batches.length); i++) {
       workers.push(runWorker());
@@ -276,6 +282,7 @@ export default function LeadPulseDashboard() {
         signal: controller.signal
       });
 
+      // Update credits from header if available
       const creditsLeft = response.headers.get('X-Credits-Left');
       if (creditsLeft) {
         const val = parseInt(creditsLeft);
@@ -297,7 +304,8 @@ export default function LeadPulseDashboard() {
       if (data.status === 'PAUSED') return true;
 
       if (response.ok && (Array.isArray(data) || (data.results && Array.isArray(data.results)))) {
-        updateUI(Array.isArray(data) ? data : data.results);
+        const resultsArray = Array.isArray(data) ? data : data.results;
+        updateUI(resultsArray);
       } else {
         throw new Error(data.message || 'Server error');
       }
@@ -306,10 +314,12 @@ export default function LeadPulseDashboard() {
     } catch (err: any) {
       if (err.name === 'AbortError') return false;
 
+      // Auto-retry once for connection issues
       if (retryCount < 1 && !stopRequestedRef.current) {
         return processBatch(email, numbers, runId, batchNo, retryCount + 1);
       }
 
+      // Mark as error if failed after retry
       updateUI(numbers.map(n => ({
         number: n,
         valid: false,
@@ -340,6 +350,7 @@ export default function LeadPulseDashboard() {
 
     setResults(prev => [...mapped, ...prev].slice(0, 10000));
 
+    // Update Counters
     mapped.forEach(item => {
       const type = (item.type || '').toLowerCase();
       setCounts(c => {
@@ -453,6 +464,10 @@ export default function LeadPulseDashboard() {
     { label: 'Error', count: counts.failed, color: 'slate-400', icon: Terminal, id: 'failed', borderColor: 'border-slate-400/20', textColor: 'text-slate-400', iconColor: 'text-slate-400' }
   ];
 
+  // Logic to show real batch and unit info
+  const displayBatchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
+  const displayConcurrency = batchInfo?.concurrency || 3;
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <Tabs defaultValue="tool" className="w-full">
@@ -485,12 +500,12 @@ export default function LeadPulseDashboard() {
                </div>
                <div className="h-4 w-px bg-white/10 mx-1" />
                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch:</span>
-                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{batchInfo?.batchSize || 25}</Badge>
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch Size:</span>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{displayBatchSize}</Badge>
                </div>
                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Units:</span>
-                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{batchInfo?.concurrency || 3}</Badge>
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Unit Cycle:</span>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{displayConcurrency}</Badge>
                </div>
             </div>
           </div>
