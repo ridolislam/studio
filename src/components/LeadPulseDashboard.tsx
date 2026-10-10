@@ -211,13 +211,6 @@ export default function LeadPulseDashboard() {
     const allNumbers = Array.from(new Set(numberInput.split('\n').map(n => n.trim()).filter(n => n !== '')));
     if (allNumbers.length === 0) return;
 
-    if (credits <= 0) {
-      addLog("ERROR: Access Denied. Credits = 0.");
-      setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
-      return;
-    }
-
-    // Auto-scroll to results table
     if (resultsTableRef.current) {
       resultsTableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -229,7 +222,7 @@ export default function LeadPulseDashboard() {
     setProgress(0);
     setResults([]);
     setCounts({ mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 });
-    setTerminalLogs([`[RUN START] ${runIdRef.current}`, `[INFO] Initializing validation for ${allNumbers.length} numbers.`]);
+    setTerminalLogs([`[RUN START] ${runIdRef.current}`, `[INFO] Initializing validation...`]);
 
     const userStr = localStorage.getItem('user');
     const userData = JSON.parse(userStr || '{}');
@@ -244,7 +237,12 @@ export default function LeadPulseDashboard() {
     const concurrency = batchInfo?.concurrency || 3;
     const numbersToProcess = allNumbers.slice(0, credits);
     
-    addLog(`[PIPELINE] Processing first ${numbersToProcess.length} numbers based on credit availability.`);
+    if (numbersToProcess.length === 0 && allNumbers.length > 0) {
+      addLog("ERROR: Access Denied. Credits = 0.");
+      setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
+      setIsProcessing(false);
+      return;
+    }
 
     const batches = [];
     for (let i = 0; i < numbersToProcess.length; i += currentBatchSize) {
@@ -259,14 +257,9 @@ export default function LeadPulseDashboard() {
       while (batchIdx < batches.length && !stopRequestedRef.current) {
         const currentBatchIdx = batchIdx++;
         const currentBatch = batches[currentBatchIdx];
-        
-        addLog(`[BATCH ${currentBatchIdx + 1}] Sent to Core ${activeServer}`);
-        const success = await processBatch(email, currentBatch, runIdRef.current, currentBatchIdx + 1);
-        
+        await processBatch(email, currentBatch, runIdRef.current, currentBatchIdx + 1);
         completedCount += currentBatch.length;
         setProgress(Math.round((completedCount / total) * 100));
-
-        if (!success || stopRequestedRef.current) break;
       }
     };
 
@@ -277,15 +270,10 @@ export default function LeadPulseDashboard() {
 
     await Promise.all(workers);
 
-    if (stopRequestedRef.current) {
-      addLog("[RUN STOPPED] Session terminated by user.");
-    } else {
-      addLog("[RUN COMPLETED] All batches processed successfully.");
-    }
-
     setIsProcessing(false);
     fetchAndSyncProfile();
     fetchHistory(email);
+    addLog("[RUN FINISHED] Session completed.");
   };
 
   const processBatch = async (email: string, numbers: string[], runId: string, batchNo: number, retryCount = 0): Promise<boolean> => {
@@ -302,35 +290,31 @@ export default function LeadPulseDashboard() {
       });
 
       const creditsLeftHeader = response.headers.get('X-Credits-Left');
-      if (creditsLeftHeader) {
-        const val = parseInt(creditsLeftHeader);
-        if (!isNaN(val)) updateCreditsState(val);
-      }
+      if (creditsLeftHeader) updateCreditsState(parseInt(creditsLeftHeader));
 
       if (response.status === 402) {
-        addLog("[ERROR] Halt: Credits exhausted.");
+        addLog("[ERROR] Credits exhausted.");
         setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
+        stopRequestedRef.current = true;
         return false;
       }
 
       const data = await response.json();
       if (data.status === 'NO_CREDITS') {
         setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
+        stopRequestedRef.current = true;
         return false;
       }
       
-      if (response.ok && (Array.isArray(data) || (data.results && Array.isArray(data.results)))) {
-        const resultsArray = Array.isArray(data) ? data : data.results;
-        addLog(`[BATCH ${batchNo}] Response received. Found ${resultsArray.filter((r:any) => r.valid).length} valid numbers.`);
+      if (response.ok) {
+        const resultsArray = Array.isArray(data) ? data : data.results || [];
         updateUI(resultsArray);
       }
-
       return true;
     } catch (err: any) {
       if (err.name === 'AbortError') return false;
-      addLog(`[BATCH ${batchNo}] Connection lost. Retrying...`);
-      if (retryCount < 1 && !stopRequestedRef.current) return processBatch(email, numbers, runId, batchNo, retryCount + 1);
-      return true; 
+      if (retryCount < 1) return processBatch(email, numbers, runId, batchNo, retryCount + 1);
+      return false;
     } finally {
       abortControllersRef.current = abortControllersRef.current.filter(c => c !== controller);
     }
@@ -345,11 +329,10 @@ export default function LeadPulseDashboard() {
       location: item.location || item.country_name || '—',
       status: item.error ? 'error' : (item.valid === false ? 'invalid' : (item.phonevalidator?.fake_number?.toLowerCase() === 'yes' ? 'fake' : 'success')),
       timestamp: new Date().toISOString(),
-      provider: item.provider,
-      error: item.error
+      provider: item.provider
     }));
 
-    setResults(prev => [...mapped, ...prev].slice(0, 5000));
+    setResults(prev => [...mapped, ...prev]);
     mapped.forEach(item => {
       const type = (item.type || '').toLowerCase();
       setCounts(c => {
@@ -370,17 +353,77 @@ export default function LeadPulseDashboard() {
   const handleStop = async () => {
     stopRequestedRef.current = true;
     abortControllersRef.current.forEach(c => c.abort());
-    abortControllersRef.current = [];
     const userStr = localStorage.getItem('user');
     const userData = JSON.parse(userStr || '{}');
     const email = userData.email || userData.data?.email || userData.user?.email;
-    if (email && runIdRef.current) {
-      try { await stopValidation(email, runIdRef.current); } catch (e) {}
-    }
+    if (email && runIdRef.current) await stopValidation(email, runIdRef.current);
     setIsProcessing(false);
-    addLog("[MANUAL STOP] Emergency halt requested.");
     fetchHistory(email);
-    toast({ title: "Paused", description: "Validation stopped." });
+    addLog("[MANUAL STOP] Emergency halt.");
+  };
+
+  // Helper to format Status for CSV
+  const getStatusLabel = (status: string, type: string) => {
+    if (status === 'error') return 'Error';
+    if (status === 'fake') return 'Fake';
+    if (status === 'invalid') return 'Invalid';
+    return type || 'Valid';
+  };
+
+  const handleDownloadLiveByCategory = (categoryId: string) => {
+    const filtered = results.filter(r => {
+      const type = (r.type || '').toLowerCase();
+      if (categoryId === 'failed') return r.status === 'error';
+      if (categoryId === 'fake') return r.status === 'fake';
+      if (categoryId === 'invalid') return r.status === 'invalid';
+      return type.includes(categoryId);
+    });
+
+    if (filtered.length === 0) {
+      toast({ variant: "destructive", title: "Empty", description: "No numbers found in this category." });
+      return;
+    }
+
+    const data = filtered.map(r => ({
+      "Number": r.number,
+      "Carrier": r.carrier,
+      "Location": r.location,
+      "Status": getStatusLabel(r.status, r.type)
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Category Results");
+    XLSX.writeFile(wb, `numcheckr-${categoryId}-${Date.now()}.csv`);
+  };
+
+  const handleDownloadBatchByCategory = (categoryId: string) => {
+    const filtered = batchDetails.filter(item => {
+      const type = (item.line_type || '').toLowerCase();
+      const isFake = item.phonevalidator?.fake_number?.toLowerCase() === 'yes';
+      
+      if (categoryId === 'failed') return !!item.error;
+      if (categoryId === 'fake') return isFake;
+      if (categoryId === 'invalid') return !item.valid && !item.error && !isFake;
+      return type.includes(categoryId) && item.valid && !isFake;
+    });
+
+    if (filtered.length === 0) {
+      toast({ variant: "destructive", title: "Empty", description: "No records in this category." });
+      return;
+    }
+
+    const data = filtered.map(item => ({
+      "Number": item.number,
+      "Carrier": item.carrier || '-',
+      "Location": item.country_name || item.location || '-',
+      "Status": item.error ? 'Error' : (item.phonevalidator?.fake_number?.toLowerCase() === 'yes' ? 'Fake' : (item.valid ? (item.line_type || 'Valid') : 'Invalid'))
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Session Category");
+    XLSX.writeFile(wb, `numcheckr-session-${categoryId}-${Date.now()}.csv`);
   };
 
   const openBatchDetails = async (batch: BatchRecord) => {
@@ -403,9 +446,10 @@ export default function LeadPulseDashboard() {
         const stats = { mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 };
         (res.results || []).forEach((item: any) => {
           const type = (item.line_type || '').toLowerCase();
+          const isFake = item.phonevalidator?.fake_number?.toLowerCase() === 'yes';
           if (item.error) stats.failed += 1;
+          else if (isFake) stats.fake += 1;
           else if (!item.valid) stats.invalid += 1;
-          else if (item.phonevalidator?.fake_number?.toLowerCase() === 'yes') stats.fake += 1;
           else if (type.includes('mobile')) stats.mobile += 1;
           else if (type.includes('landline')) stats.landline += 1;
           else if (type.includes('voip')) stats.voip += 1;
@@ -424,6 +468,7 @@ export default function LeadPulseDashboard() {
     const userData = JSON.parse(userStr || '{}');
     const email = userData.email || userData.data?.email || userData.user?.email;
     if (!email) return;
+    
     setIsDownloading(batchId + format + filter);
     try {
       const res = await downloadBatchData({ email, batchId, format, filter });
@@ -440,26 +485,6 @@ export default function LeadPulseDashboard() {
     } finally {
       setIsDownloading(null);
     }
-  };
-
-  const handleDownloadLiveByCategory = (categoryId: string) => {
-    const filtered = results.filter(r => {
-      const type = (r.type || '').toLowerCase();
-      if (categoryId === 'failed') return r.status === 'error';
-      if (categoryId === 'fake') return r.status === 'fake';
-      if (categoryId === 'invalid') return r.status === 'invalid';
-      return type.includes(categoryId);
-    });
-
-    if (filtered.length === 0) {
-      toast({ variant: "destructive", title: "Empty", description: "No results in this category." });
-      return;
-    }
-
-    const ws = XLSX.utils.json_to_sheet(filtered.map(r => ({ Number: r.number, Status: r.status, Type: r.type, Carrier: r.carrier, Location: r.location })));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `numcheckr-${categoryId}-${Date.now()}.csv`);
   };
 
   const formatExpiresAt = (expiryDate: string) => {
@@ -518,11 +543,11 @@ export default function LeadPulseDashboard() {
                </div>
                <div className="h-4 w-px bg-white/10 mx-1" />
                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch:</span>
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch Size:</span>
                   <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{batchInfo?.recommendedBatchSize || batchInfo?.batchSize || 25}</Badge>
                </div>
                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Unit:</span>
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Unit Cycle:</span>
                   <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{batchInfo?.concurrency || 3}</Badge>
                </div>
             </div>
@@ -554,7 +579,6 @@ export default function LeadPulseDashboard() {
                     size="icon" 
                     onClick={() => fileInputRef.current?.click()}
                     className="h-8 w-8 rounded-lg bg-white/5 hover:bg-white/10 text-muted-foreground"
-                    title="Upload File"
                   >
                     <Upload className="h-4 w-4" />
                   </Button>
@@ -578,16 +602,12 @@ export default function LeadPulseDashboard() {
                 </CardContent>
               </Card>
 
-              {/* Live Terminal Log */}
               <Card className="border-white/5 bg-black/60 rounded-[2rem] overflow-hidden shadow-2xl">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                        <Cpu className="h-3 w-3 text-primary" />
                        <span className="text-[8px] font-black uppercase tracking-widest opacity-50">Live Terminal</span>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => setTerminalLogs(["[CLEARED] Terminal reset."])} className="h-6 w-6 rounded-md hover:bg-white/10">
-                       <Trash2 className="h-3 w-3 opacity-30" />
-                    </Button>
                  </div>
                  <ScrollArea className="h-[200px] font-code text-[10px] p-4 text-primary/80">
                     <div className="space-y-1">
@@ -609,7 +629,6 @@ export default function LeadPulseDashboard() {
                   <button 
                     key={item.id} 
                     onClick={() => handleDownloadLiveByCategory(item.id)}
-                    title={`Download ${item.label} Results`}
                     className={cn(
                       "p-5 rounded-[2rem] border-2 group shadow-2xl relative overflow-hidden bg-gradient-to-br transition-all hover:scale-105 active:scale-95 text-left w-full", 
                       item.bgGradient, 
@@ -626,7 +645,7 @@ export default function LeadPulseDashboard() {
                 ))}
               </div>
 
-              <Card className="bg-card/40 p-6 rounded-[2rem] border-white/5 backdrop-blur-md shadow-2xl">
+              <Card className="bg-card/40 p-6 rounded-[2rem] border-white/5 shadow-2xl">
                 <div className="flex justify-between items-end mb-4">
                   <span className="text-[10px] font-black uppercase opacity-60 tracking-[0.3em]">Pipeline Progress</span>
                   <span className="text-4xl font-black italic text-primary">{progress}%</span>
@@ -752,8 +771,7 @@ export default function LeadPulseDashboard() {
                    <DialogDescription className="text-[9px] font-bold uppercase tracking-widest mt-1">Ref ID: {selectedBatch?.runId}</DialogDescription>
                 </div>
                 <div className="flex items-center gap-4">
-                   <Button variant="outline" onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'csv', batchFilter)} className="h-12 rounded-xl border-white/10 text-[10px] font-black px-6"><Download className="h-4 w-4 mr-2" /> Export CSV</Button>
-                   <Button onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'txt', batchFilter)} className="h-12 rounded-xl bg-primary text-white text-[10px] font-black px-6">Numbers (TXT)</Button>
+                   <Button variant="outline" onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'csv', batchFilter)} className="h-12 rounded-xl border-white/10 text-[10px] font-black px-6"><Download className="h-4 w-4 mr-2" /> Export Full CSV</Button>
                 </div>
               </div>
            </DialogHeader>
@@ -763,8 +781,7 @@ export default function LeadPulseDashboard() {
                 {detailStats.map((stat, i) => (
                   <button 
                     key={i} 
-                    onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'csv', stat.id)}
-                    title={`Download ${stat.label} from this batch`}
+                    onClick={() => handleDownloadBatchByCategory(stat.id)}
                     className={cn(
                       "p-4 rounded-2xl border border-white/5 flex flex-col items-center text-center transition-all hover:scale-105 active:scale-95 group relative", 
                       stat.bg
@@ -827,7 +844,7 @@ export default function LeadPulseDashboard() {
            </div>
            
            <DialogFooter className="p-6 border-t border-white/5 bg-white/5 flex justify-center items-center">
-              <p className="text-[9px] font-bold text-muted-foreground uppercase italic opacity-40">Security Layer: numcheckr distributed validation protocol v4.0</p>
+              <p className="text-[9px] font-bold text-muted-foreground uppercase italic opacity-40">Security Layer: numcheckr distributed protocol v4.0</p>
            </DialogFooter>
         </DialogContent>
       </Dialog>
