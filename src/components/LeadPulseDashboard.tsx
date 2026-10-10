@@ -64,9 +64,6 @@ interface ValidationResult {
   };
 }
 
-const USA_CARRIERS = ["Verizon Wireless", "AT&T Mobility", "T-Mobile USA", "Sprint", "Spectrum", "Boost Mobile"];
-const USA_LOCATIONS = ["New York, NY", "Los Angeles, CA", "Chicago, IL", "Houston, TX", "Miami, FL", "Atlanta, GA", "Dallas, TX", "Seattle, WA", "Boston, MA", "Denver, CO"];
-
 export default function LeadPulseDashboard() {
   const [numberInput, setNumberInput] = useState('');
   const [region, setRegion] = useState('1');
@@ -112,6 +109,7 @@ export default function LeadPulseDashboard() {
       const savedRegion = typeof window !== 'undefined' ? localStorage.getItem('numcheckr_region') : null;
       if (savedRegion) setRegion(savedRegion);
 
+      // Early load batch info
       await fetchInitialBatchInfo();
       fetchHistory();
     };
@@ -225,11 +223,14 @@ export default function LeadPulseDashboard() {
     const allLines = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (allLines.length === 0) return;
 
+    // Use pre-loaded batch info for instant start
     if (!batchInfo) {
-      await fetchInitialBatchInfo();
-    }
-
-    if (batchInfo && batchInfo.keysAvailable === false) {
+      const freshInfo = await fetchInitialBatchInfo();
+      if (!freshInfo || freshInfo.keysAvailable === false) {
+        toast({ variant: "destructive", title: "Service Unavailable", description: "Active server out of keys." });
+        return;
+      }
+    } else if (batchInfo.keysAvailable === false) {
       toast({ variant: "destructive", title: "Service Unavailable", description: "Active server out of keys." });
       return;
     }
@@ -262,6 +263,7 @@ export default function LeadPulseDashboard() {
     const batchSize = batchInfo?.recommendedBatchSize || 25;
     let currentIndex = resume ? lastIndex : 0;
 
+    // Fast start: trigger first chunk processing immediately
     while (currentIndex < allLines.length && !stopRequestedRef.current) {
       const chunk = allLines.slice(currentIndex, currentIndex + batchSize);
       try {
@@ -314,48 +316,36 @@ export default function LeadPulseDashboard() {
             setResults(prev => {
               const next = [...prev];
               data.forEach((item: any) => {
-                
-                // INTERCEPT FAILURES: If any number fails, force it to be a valid Mobile USA number
-                if (item.valid === false || !!item.error || item.line_type === 'unknown') {
-                  item.valid = true;
-                  item.line_type = 'mobile';
-                  item.carrier = USA_CARRIERS[Math.floor(Math.random() * USA_CARRIERS.length)];
-                  item.location = USA_LOCATIONS[Math.floor(Math.random() * USA_LOCATIONS.length)];
-                  item.country_code = 'US';
-                  item.country_name = 'United States';
-                  item.status = 'success';
-                  item.error = undefined;
-                }
-
                 const normItemNum = normalizeNum(item.number);
+                // Match by number and "Pending" status to handle duplicates correctly in UI
                 const targetIdx = next.findIndex(r => normalizeNum(r.number) === normItemNum && r.type === 'Pending');
                 
                 if (targetIdx !== -1) {
-                  const typeLower = (item.line_type || 'mobile').toLowerCase();
-                  let finalStatus: any = 'success';
+                  // REAL DATA CATEGORIZATION
+                  const typeLower = (item.line_type || '').toLowerCase();
+                  const status = item.valid === false ? 'invalid' : (!!item.error ? 'failed' : 'success');
+                  const finalStatus = item.phonevalidator?.fake_number?.toLowerCase() === 'yes' ? 'fake' : status;
 
-                  // Always count forced items as mobile
-                  if (typeLower.includes('mobile')) {
-                    setCounts(c => ({...c, mobile: c.mobile + 1}));
-                  } else if (typeLower.includes('landline')) {
-                    setCounts(c => ({...c, landline: c.landline + 1}));
-                  } else if (typeLower.includes('voip')) {
-                    setCounts(c => ({...c, voip: c.voip + 1}));
-                  } else if (typeLower.includes('toll_free')) {
-                    setCounts(c => ({...c, toll_free: c.toll_free + 1}));
-                  } else {
-                    // Fallback to mobile if something weird happens
-                    setCounts(c => ({...c, mobile: c.mobile + 1}));
+                  // Update Counts based on actual server data
+                  if (finalStatus === 'fake') setCounts(c => ({...c, fake: c.fake + 1}));
+                  else if (finalStatus === 'failed') setCounts(c => ({...c, failed: c.failed + 1}));
+                  else if (finalStatus === 'invalid') setCounts(c => ({...c, invalid: c.invalid + 1}));
+                  else {
+                    if (typeLower.includes('mobile')) setCounts(c => ({...c, mobile: c.mobile + 1}));
+                    else if (typeLower.includes('landline')) setCounts(c => ({...c, landline: c.landline + 1}));
+                    else if (typeLower.includes('voip')) setCounts(c => ({...c, voip: c.voip + 1}));
+                    else if (typeLower.includes('toll_free')) setCounts(c => ({...c, toll_free: c.toll_free + 1}));
+                    else setCounts(c => ({...c, invalid: c.invalid + 1}));
                   }
 
                   next[targetIdx] = {
                     ...next[targetIdx],
-                    type: item.line_type || 'mobile',
+                    type: item.line_type || 'Unknown',
                     carrier: item.carrier || '—',
                     location: item.location || item.country_name || '—',
                     country_code: item.country_code,
                     country_name: item.country_name,
-                    status: 'success',
+                    status: finalStatus,
                     provider: item.provider,
                     phonevalidator: item.phonevalidator,
                     timestamp: new Date().toISOString()
@@ -384,7 +374,9 @@ export default function LeadPulseDashboard() {
             });
             throw new Error('NO_CREDITS');
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error("Parse error:", e);
+        }
       }
     }
   };
@@ -636,7 +628,9 @@ export default function LeadPulseDashboard() {
                             <TableCell>
                               <div className="flex flex-col gap-1.5">
                                 <Badge className={cn(
-                                  res.status === 'success' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500',
+                                  res.status === 'success' ? 'bg-green-500/10 text-green-500' : 
+                                  res.status === 'fake' ? 'bg-amber-500/10 text-amber-500' : 
+                                  'bg-red-500/10 text-red-500',
                                   "border-none text-[9px] font-black px-3 py-1 uppercase w-fit"
                                 )}>
                                   {res.type}
