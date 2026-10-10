@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { syncUserProfile, getUserHistory, stopValidation, getBatchInfo, getActiveServer } from '@/app/actions/backend';
+import { syncUserProfile, getUserHistory, getBatchInfo } from '@/app/actions/backend';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 
@@ -75,15 +75,18 @@ export default function LeadPulseDashboard() {
       if (userStr) {
         try {
           const userData = JSON.parse(userStr);
-          setCredits(userData.credits || 0);
+          const currentCredits = userData.credits || 0;
+          setCredits(currentCredits);
         } catch(e) {}
       }
       
-      const res = await getBatchInfo();
-      if (res.success) {
-        setBatchInfo(res);
-        setActiveServer(res.activeServer);
-      }
+      try {
+        const res = await getBatchInfo();
+        if (res.success) {
+          setBatchInfo(res);
+          setActiveServer(res.activeServer);
+        }
+      } catch (e) {}
       fetchHistory();
     };
     loadInitialData();
@@ -102,6 +105,7 @@ export default function LeadPulseDashboard() {
       if (res.success) {
         setCredits(res.credits);
         localStorage.setItem('user', JSON.stringify({ ...userData, credits: res.credits }));
+        window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: res.credits } }));
       }
     } finally {
       setIsSyncing(false);
@@ -146,7 +150,7 @@ export default function LeadPulseDashboard() {
     const allNumbers = numberInput.split('\n').map(n => n.trim()).filter(n => n !== '');
     if (allNumbers.length === 0) return;
 
-    // IMMEDIATE EXECUTION: No UI loops, no delays.
+    // IMMEDIATE EXECUTION: No pre-processing, no pending rows
     setIsProcessing(true);
     stopRequestedRef.current = false;
     setProgress(0);
@@ -166,38 +170,47 @@ export default function LeadPulseDashboard() {
     const total = allNumbers.length;
     let processedCount = 0;
 
-    // Concurrency: Fire multiple batches in parallel for extreme speed
-    const concurrencyLimit = 3;
+    // Split numbers into chunks
     const chunks = [];
     for (let i = 0; i < allNumbers.length; i += batchSize) {
       chunks.push(allNumbers.slice(i, i + batchSize));
     }
 
-    const processQueue = async () => {
-      for (let i = 0; i < chunks.length; i++) {
-        if (stopRequestedRef.current) break;
-        
-        // Execute batch immediately
+    // Parallel processing with a concurrency of 3 batches
+    const concurrency = 3;
+    let index = 0;
+
+    const runWorker = async () => {
+      while (index < chunks.length && !stopRequestedRef.current) {
+        const chunkIndex = index++;
+        const currentChunk = chunks[chunkIndex];
+
         try {
-          const chunkResults = await executeBatch(email, chunks[i]);
-          if (chunkResults === 'STOP') break;
-          
-          processedCount += chunks[i].length;
+          const res = await executeBatch(email, currentChunk);
+          if (res === 'STOP') {
+            stopRequestedRef.current = true;
+            break;
+          }
+          processedCount += currentChunk.length;
           setProgress(Math.round((processedCount / total) * 100));
         } catch (e) {
-          console.error("Batch error", e);
+          console.error("Batch processing failed", e);
         }
       }
-      setIsProcessing(false);
-      fetchAndSyncProfile();
     };
 
-    processQueue();
+    // Start workers in parallel
+    const workers = Array(Math.min(concurrency, chunks.length)).fill(null).map(() => runWorker());
+    
+    Promise.all(workers).then(() => {
+      setIsProcessing(false);
+      fetchAndSyncProfile();
+      fetchHistory();
+    });
   };
 
   const executeBatch = async (email: string, numbers: string[]) => {
     try {
-      // Direct Fetch is the fastest way to communicate with REST backend
       const response = await fetch('https://numcheckr.onrender.com/api/user/validate-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -222,7 +235,7 @@ export default function LeadPulseDashboard() {
 
   const updateUI = (newResults: any[]) => {
     setResults(prev => [...newResults.map(item => ({
-      id: Math.random().toString(36),
+      id: Math.random().toString(36).substring(7),
       number: item.number,
       type: item.line_type || 'Unknown',
       carrier: item.carrier || '—',
@@ -230,25 +243,28 @@ export default function LeadPulseDashboard() {
       status: item.valid === false ? 'invalid' : (item.phonevalidator?.fake_number?.toLowerCase() === 'yes' ? 'fake' : 'success'),
       timestamp: new Date().toISOString(),
       provider: item.provider
-    })), ...prev].slice(0, 1000));
+    })), ...prev].slice(0, 5000));
 
-    // Fast counter updates
     newResults.forEach(item => {
       const type = (item.line_type || '').toLowerCase();
       const isFake = item.phonevalidator?.fake_number?.toLowerCase() === 'yes';
       
       setCounts(c => {
-        if (isFake) return { ...c, fake: c.fake + 1 };
-        if (item.valid === false) return { ...c, invalid: c.invalid + 1 };
-        if (type.includes('mobile')) return { ...c, mobile: c.mobile + 1 };
-        if (type.includes('landline')) return { ...c, landline: c.landline + 1 };
-        if (type.includes('voip')) return { ...c, voip: c.voip + 1 };
-        if (type.includes('toll')) return { ...c, toll_free: c.toll_free + 1 };
-        return { ...c, invalid: c.invalid + 1 };
+        const next = { ...c };
+        if (isFake) next.fake += 1;
+        else if (item.valid === false) next.invalid += 1;
+        else if (type.includes('mobile')) next.mobile += 1;
+        else if (type.includes('landline')) next.landline += 1;
+        else if (type.includes('voip')) next.voip += 1;
+        else if (type.includes('toll')) next.toll_free += 1;
+        else next.invalid += 1;
+        return next;
       });
     });
     
-    setLiveJson(newResults[newResults.length - 1]);
+    if (newResults.length > 0) {
+      setLiveJson(newResults[newResults.length - 1]);
+    }
   };
 
   const handleStop = () => {
@@ -259,15 +275,24 @@ export default function LeadPulseDashboard() {
   const downloadResults = (filter?: string) => {
     let filtered = results;
     if (filter) {
-      if (filter === 'valid') filtered = results.filter(r => r.status === 'success');
-      else if (filter === 'invalid') filtered = results.filter(r => r.status === 'invalid');
+      if (filter === 'mobile') filtered = results.filter(r => r.type.toLowerCase().includes('mobile'));
+      else if (filter === 'landline') filtered = results.filter(r => r.type.toLowerCase().includes('landline'));
+      else if (filter === 'voip') filtered = results.filter(r => r.type.toLowerCase().includes('voip'));
+      else if (filter === 'toll_free') filtered = results.filter(r => r.type.toLowerCase().includes('toll'));
       else if (filter === 'fake') filtered = results.filter(r => r.status === 'fake');
-      else filtered = results.filter(r => r.type.toLowerCase().includes(filter));
+      else if (filter === 'invalid') filtered = results.filter(r => r.status === 'invalid');
+      else if (filter === 'failed') filtered = results.filter(r => r.status === 'failed');
     }
+    
+    if (filtered.length === 0) {
+      toast({ variant: "destructive", title: "No Data", description: "No results to download for this category." });
+      return;
+    }
+
     const ws = XLSX.utils.json_to_sheet(filtered);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `results_${filter || 'all'}.xlsx`);
+    XLSX.writeFile(wb, `numcheckr_${filter || 'all'}_${new Date().getTime()}.xlsx`);
   };
 
   return (
@@ -282,14 +307,14 @@ export default function LeadPulseDashboard() {
             <div className="flex items-center gap-2 px-2">
                <div className={cn("h-2 w-2 rounded-full", activeServer === 2 ? "bg-accent" : "bg-primary animate-pulse")} />
                <span className="text-[9px] font-black uppercase opacity-60">
-                 {activeServer === 2 ? "Core 2 Active" : "Core 1 Active"}
+                 {activeServer === 2 ? "Core 2 Distributed Active" : "Core 1 Standard Active"}
                </span>
             </div>
           </div>
 
           <div className="flex items-center gap-4 bg-primary/5 px-6 py-3 rounded-2xl border border-primary/20">
             <div className="flex flex-col items-end">
-              <span className="text-[10px] font-black uppercase text-primary/70">Credits</span>
+              <span className="text-[10px] font-black uppercase text-primary/70">Wallet Balance</span>
               <span className="text-2xl font-black italic">{credits}</span>
             </div>
             <Button variant="ghost" size="icon" onClick={fetchAndSyncProfile} disabled={isSyncing} className="rounded-xl">
@@ -303,27 +328,33 @@ export default function LeadPulseDashboard() {
             <Card className="xl:col-span-1 border-white/10 bg-card shadow-2xl overflow-hidden">
               <div className={cn("h-1 w-full", activeServer === 2 ? "bg-accent" : "bg-primary")} />
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-black uppercase flex items-center gap-2"><Terminal className="h-3 w-3" /> Input</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} className="h-8 text-[10px] font-black uppercase bg-primary/5">Import</Button>
+                <CardTitle className="text-xs font-black uppercase flex items-center gap-2"><Terminal className="h-3 w-3" /> Input Console</CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} className="h-8 text-[10px] font-black uppercase bg-primary/5">Import File</Button>
                 <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} />
               </CardHeader>
               <CardContent className="space-y-4">
                 <Textarea 
-                  placeholder="Numbers..." 
+                  placeholder="Paste numbers (one per line)..." 
                   value={numberInput} 
                   onChange={e => setNumberInput(e.target.value)} 
-                  className="min-h-[300px] font-code text-xs bg-muted/20 border-white/5 resize-none" 
+                  className="min-h-[350px] font-code text-xs bg-muted/20 border-white/5 resize-none placeholder:opacity-30" 
                   disabled={isProcessing} 
                 />
-                <Select value={region} onValueChange={setRegion}>
-                  <SelectTrigger className="bg-black/40 border-white/10 h-10 rounded-xl"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="1">Region 1</SelectItem><SelectItem value="2">Region 2</SelectItem></SelectContent>
-                </Select>
-                <div className="grid grid-cols-2 gap-3">
-                  <Button onClick={handleStart} disabled={isProcessing} className="h-14 bg-primary font-black italic rounded-xl text-lg">
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black uppercase opacity-50 ml-1">Traffic Region</label>
+                  <Select value={region} onValueChange={setRegion}>
+                    <SelectTrigger className="bg-black/40 border-white/10 h-12 rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Region 1 (USA/EU)</SelectItem>
+                      <SelectItem value="2">Region 2 (Global)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-2">
+                  <Button onClick={handleStart} disabled={isProcessing} className="h-16 bg-primary font-black italic rounded-xl text-xl shadow-lg shadow-primary/20">
                     {isProcessing ? <Loader2 className="animate-spin" /> : "START"}
                   </Button>
-                  <Button onClick={handleStop} disabled={!isProcessing} variant="destructive" className="h-14 font-black italic rounded-xl">STOP</Button>
+                  <Button onClick={handleStop} disabled={!isProcessing} variant="destructive" className="h-16 font-black italic rounded-xl">STOP</Button>
                 </div>
               </CardContent>
             </Card>
@@ -339,58 +370,78 @@ export default function LeadPulseDashboard() {
                   { label: 'Invalid', count: counts.invalid, color: 'red', id: 'invalid' },
                   { label: 'Failed', count: counts.failed, color: 'white', id: 'failed' }
                 ].map(item => (
-                  <Card key={item.id} onClick={() => downloadResults(item.id)} className={`bg-${item.color}-500/5 p-3 rounded-xl border border-${item.color}-500/10 text-center cursor-pointer hover:scale-105 transition-all`}>
-                    <p className={`text-[9px] font-black uppercase text-${item.color}-500 mb-1`}>{item.label}</p>
+                  <Card 
+                    key={item.id} 
+                    onClick={() => downloadResults(item.id)} 
+                    className={cn(
+                      "p-3 rounded-xl border transition-all cursor-pointer hover:scale-105 active:scale-95 group",
+                      `bg-${item.color}-500/5 border-${item.color}-500/10`
+                    )}
+                  >
+                    <p className={cn(`text-[9px] font-black uppercase mb-1 tracking-widest opacity-60 group-hover:text-${item.color}-500`)}>{item.label}</p>
                     <h3 className="text-2xl font-black italic">{item.count}</h3>
                   </Card>
                 ))}
               </div>
 
-              <div className="bg-card/40 p-5 rounded-2xl border border-white/5">
+              <div className="bg-card/40 p-5 rounded-2xl border border-white/5 backdrop-blur-sm">
                 <div className="flex justify-between items-end mb-3">
-                   <span className="text-[10px] font-black uppercase opacity-50">Progress</span>
+                   <div className="flex items-center gap-2">
+                     <Activity className="h-4 w-4 text-primary animate-pulse" />
+                     <span className="text-[10px] font-black uppercase opacity-50 tracking-widest">Global Cycle Progress</span>
+                   </div>
                    <span className="text-xl font-black italic text-primary">{progress}%</span>
                 </div>
                 <Progress value={progress} className="h-3 bg-white/5" />
               </div>
 
-              <Card className="bg-card/60 rounded-3xl overflow-hidden border-white/5 shadow-2xl">
+              <Card className="bg-card/60 rounded-3xl overflow-hidden border-white/5 shadow-2xl backdrop-blur-xl">
                 <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
-                  <span className="text-[10px] font-black uppercase opacity-70">Live Feed</span>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-70">Real-time Intelligence Feed</span>
+                  </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="h-8 rounded-lg text-[9px] font-black uppercase" onClick={() => downloadResults('valid')}>Valid</Button>
-                    <Button size="sm" variant="outline" className="h-8 rounded-lg text-[9px] font-black uppercase" onClick={() => downloadResults()}>All</Button>
+                    <Button size="sm" variant="outline" className="h-8 rounded-lg text-[9px] font-black uppercase px-4 border-white/10 hover:bg-primary/10" onClick={() => downloadResults('mobile')}>Mobile Only</Button>
+                    <Button size="sm" variant="outline" className="h-8 rounded-lg text-[9px] font-black uppercase px-4 border-white/10 hover:bg-primary/10" onClick={() => downloadResults()}>Export All</Button>
                   </div>
                 </div>
-                <div className="overflow-x-auto max-h-[500px]">
+                <div className="overflow-x-auto max-h-[600px] custom-scrollbar">
                   <Table>
-                    <TableHeader className="bg-muted/10 sticky top-0 z-10">
+                    <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-md">
                       <TableRow className="border-white/5">
-                        <TableHead className="px-8 text-[10px] font-black uppercase">Number</TableHead>
-                        <TableHead className="text-[10px] font-black uppercase">Type</TableHead>
-                        <TableHead className="text-[10px] font-black uppercase">Location</TableHead>
-                        <TableHead className="text-[10px] font-black uppercase">Carrier</TableHead>
-                        <TableHead className="text-right px-8 text-[10px] font-black uppercase">Core</TableHead>
+                        <TableHead className="px-8 text-[10px] font-black uppercase tracking-widest">Number Identity</TableHead>
+                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Line Type</TableHead>
+                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Geo/Location</TableHead>
+                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
+                        <TableHead className="text-right px-8 text-[10px] font-black uppercase tracking-widest">Engine</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {results.length === 0 ? (
-                        <TableRow><TableCell colSpan={5} className="h-60 text-center opacity-20 font-black italic uppercase">Queue Empty</TableCell></TableRow>
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-80 text-center">
+                            <div className="flex flex-col items-center gap-4 opacity-20">
+                              <Zap className="h-16 w-16" />
+                              <p className="font-black italic uppercase text-xl tracking-tighter">Distributed Worker Waiting</p>
+                            </div>
+                          </TableCell>
+                        </TableRow>
                       ) : (
                         results.map(res => (
-                          <TableRow key={res.id} className="h-16 border-white/5 hover:bg-white/5 transition-colors">
-                            <TableCell className="px-8 font-code font-black text-primary">{res.number}</TableCell>
+                          <TableRow key={res.id} className="h-16 border-white/5 hover:bg-white/5 transition-colors group">
+                            <TableCell className="px-8 font-code font-black text-primary group-hover:scale-105 transition-transform origin-left">{res.number}</TableCell>
                             <TableCell>
                               <Badge className={cn(
                                 res.status === 'success' ? 'bg-green-500/10 text-green-500' : 
                                 res.status === 'fake' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500',
-                                "border-none text-[8px] font-black px-2 uppercase"
+                                "border-none text-[8px] font-black px-3 uppercase tracking-widest"
                               )}>{res.type}</Badge>
                             </TableCell>
-                            <TableCell className="text-xs font-black italic">{res.location}</TableCell>
-                            <TableCell className="text-xs font-bold italic opacity-60">{res.carrier}</TableCell>
+                            <TableCell className="text-[11px] font-black italic">{res.location}</TableCell>
+                            <TableCell className="text-[11px] font-bold italic opacity-60">{res.carrier}</TableCell>
                             <TableCell className="text-right px-8">
-                               <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary">{res.provider === 'phonevalidator' ? 'Core 2' : 'Core 1'}</Badge>
+                               <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary uppercase">{res.provider === 'phonevalidator' ? 'Core 2' : 'Core 1'}</Badge>
                             </TableCell>
                           </TableRow>
                         ))
@@ -404,27 +455,36 @@ export default function LeadPulseDashboard() {
         </TabsContent>
 
         <TabsContent value="history">
-          <Card className="border-white/5 bg-card/60 rounded-3xl overflow-hidden p-6">
+          <Card className="border-white/5 bg-card/60 rounded-3xl overflow-hidden p-6 shadow-2xl backdrop-blur-xl">
              <div className="flex justify-between items-center mb-6">
-               <h3 className="text-xl font-black italic uppercase">History</h3>
-               <Button variant="ghost" size="sm" onClick={fetchHistory} className="h-8 font-black uppercase text-[10px]">Refresh</Button>
+               <div className="flex items-center gap-3">
+                 <div className="p-2 bg-primary/10 rounded-lg"><Activity className="h-5 w-5 text-primary" /></div>
+                 <h3 className="text-xl font-black italic uppercase tracking-tighter">Validation Logs</h3>
+               </div>
+               <Button variant="ghost" size="sm" onClick={fetchHistory} className="h-10 font-black uppercase text-[10px] bg-white/5 px-6 rounded-xl hover:bg-primary/10">Sync Logs</Button>
              </div>
              <Table>
                <TableHeader className="bg-muted/10">
                  <TableRow className="border-white/5">
-                   <TableHead className="px-6 py-4 text-[10px] font-black uppercase">Date</TableHead>
-                   <TableHead className="text-[10px] font-black uppercase">Description</TableHead>
-                   <TableHead className="text-right px-6 text-[10px] font-black uppercase">Units</TableHead>
+                   <TableHead className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Timestamp</TableHead>
+                   <TableHead className="text-[10px] font-black uppercase tracking-widest">Transaction Details</TableHead>
+                   <TableHead className="text-right px-6 text-[10px] font-black uppercase tracking-widest">Units Impact</TableHead>
                  </TableRow>
                </TableHeader>
                <TableBody>
-                 {history.map((item, i) => (
-                   <TableRow key={i} className="border-white/5">
-                     <TableCell className="px-6 text-xs font-code opacity-60">{new Date(item.date).toLocaleString()}</TableCell>
-                     <TableCell className="font-black italic text-sm">{item.description}</TableCell>
-                     <TableCell className={`text-right px-6 font-black italic ${item.type === 'Payment' ? 'text-green-500' : 'text-primary'}`}>{item.amount}</TableCell>
-                   </TableRow>
-                 ))}
+                 {history.length === 0 ? (
+                   <TableRow><TableCell colSpan={3} className="h-60 text-center opacity-20 font-black italic uppercase">No Logs Synchronized</TableCell></TableRow>
+                 ) : (
+                   history.map((item, i) => (
+                     <TableRow key={i} className="border-white/5 hover:bg-white/5 transition-colors">
+                       <TableCell className="px-6 text-xs font-code opacity-60">{new Date(item.date).toLocaleString()}</TableCell>
+                       <TableCell className="font-black italic text-sm">{item.description}</TableCell>
+                       <TableCell className={`text-right px-6 font-black italic text-lg ${item.type === 'Payment' ? 'text-green-500' : 'text-primary'}`}>
+                         {item.type === 'Payment' ? '+' : '-'}{item.amount}
+                       </TableCell>
+                     </TableRow>
+                   ))
+                 )}
                </TableBody>
              </Table>
           </Card>
@@ -432,14 +492,15 @@ export default function LeadPulseDashboard() {
       </Tabs>
 
       <Dialog open={showCreditModal.open} onOpenChange={(o) => setShowCreditModal(s => ({...s, open: o}))}>
-        <DialogContent className="border-primary/20 bg-card rounded-3xl max-w-sm text-center">
-          <div className="mx-auto w-16 h-16 bg-destructive/10 rounded-2xl flex items-center justify-center mb-4 border border-destructive/20"><ShieldAlert className="h-8 w-8 text-destructive" /></div>
-          <DialogTitle className="text-2xl font-black italic uppercase">Low Credits</DialogTitle>
-          <div className="py-4 font-bold uppercase text-[10px] space-y-2">
-            <div className="flex justify-between p-3 bg-white/5 rounded-xl"><span>Available:</span><span className="text-destructive">{showCreditModal.available}</span></div>
-            <div className="flex justify-between p-3 bg-white/5 rounded-xl"><span>Required:</span><span className="text-white">{showCreditModal.requested}</span></div>
+        <DialogContent className="border-primary/20 bg-card rounded-[2rem] max-w-sm text-center shadow-3xl">
+          <div className="mx-auto w-20 h-20 bg-destructive/10 rounded-3xl flex items-center justify-center mb-6 border-2 border-destructive/20"><ShieldAlert className="h-10 w-10 text-destructive" /></div>
+          <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter mb-2">Cycle Blocked</DialogTitle>
+          <DialogDescription className="font-bold uppercase text-[10px] tracking-widest opacity-60 mb-6">Insufficient units to complete current batch.</DialogDescription>
+          <div className="py-2 font-black uppercase text-[10px] space-y-3 mb-8">
+            <div className="flex justify-between items-center p-4 bg-black/40 rounded-2xl border border-white/5"><span>Available Units</span><span className="text-destructive text-lg font-black italic">{showCreditModal.available}</span></div>
+            <div className="flex justify-between items-center p-4 bg-black/40 rounded-2xl border border-white/5"><span>Batch Requirement</span><span className="text-white text-lg font-black italic">{showCreditModal.requested}</span></div>
           </div>
-          <Button onClick={() => window.location.href = '/credits'} className="w-full h-14 bg-primary font-black italic rounded-xl text-lg"><CreditCard className="mr-2 h-5 w-5" /> RECHARGE</Button>
+          <Button onClick={() => window.location.href = '/credits'} className="w-full h-16 bg-primary font-black italic rounded-2xl text-xl shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"><CreditCard className="mr-3 h-6 w-6" /> RECHARGE WALLET</Button>
         </DialogContent>
       </Dialog>
     </div>
