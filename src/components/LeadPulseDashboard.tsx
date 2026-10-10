@@ -30,7 +30,8 @@ import {
   ChevronRight,
   Filter,
   FileText,
-  BarChart3
+  BarChart3,
+  Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -87,6 +88,7 @@ export default function LeadPulseDashboard() {
   const [counts, setCounts] = useState({ mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 });
   const [showCreditModal, setShowCreditModal] = useState({ open: false, msg: '' });
   const [batchInfo, setBatchInfo] = useState<any>(null);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>(["[SYSTEM] Engine Ready. Waiting for input..."]);
 
   const [selectedBatch, setSelectedBatch] = useState<BatchRecord | null>(null);
   const [batchDetails, setBatchDetails] = useState<any[]>([]);
@@ -96,6 +98,7 @@ export default function LeadPulseDashboard() {
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   
   const stopRequestedRef = useRef(false);
@@ -114,6 +117,16 @@ export default function LeadPulseDashboard() {
       } catch(e) {}
     }
   }, []);
+
+  useEffect(() => {
+    if (terminalEndRef.current) {
+      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [terminalLogs]);
+
+  const addLog = (msg: string) => {
+    setTerminalLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`].slice(-50));
+  };
 
   const fetchBatchInfo = async () => {
     try {
@@ -134,7 +147,7 @@ export default function LeadPulseDashboard() {
       if (!email) return;
       setIsSyncing(true);
       const res = await syncUserProfile(email);
-      if (res.success) {
+      if (res && res.success) {
         updateCreditsState(res.credits);
       }
     } finally {
@@ -159,11 +172,8 @@ export default function LeadPulseDashboard() {
     try {
       const res = await getUserHistory({ email: targetEmail, limit: 100 });
       if (res.success) {
-        // Grouping logic: Treat runId as a session. 
-        // If server returns individual batches, we group them by runId to show a clean session history.
         const rawHistory = res.history || [];
         const sessionMap: Record<string, BatchRecord> = {};
-        
         rawHistory.forEach((record: any) => {
           const runId = record.runId || record.id;
           if (!sessionMap[runId]) {
@@ -175,7 +185,6 @@ export default function LeadPulseDashboard() {
           sessionMap[runId].invalid += record.invalid;
           sessionMap[runId].failed += record.failed;
         });
-
         setHistory(Object.values(sessionMap).sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()));
       }
     } catch (e) {
@@ -198,6 +207,7 @@ export default function LeadPulseDashboard() {
         const extracted = rows.map(r => String(r[0] || '').trim()).filter(n => n.length >= 3);
         if (extracted.length > 0) {
           setNumberInput(prev => (prev ? prev + '\n' : '') + extracted.join('\n'));
+          addLog(`Imported ${extracted.length} numbers from file.`);
           toast({ title: "Imported", description: `${extracted.length} numbers added.` });
         }
       } catch (err) {
@@ -213,6 +223,7 @@ export default function LeadPulseDashboard() {
     if (allNumbers.length === 0) return;
 
     if (credits <= 0) {
+      addLog("ERROR: Access Denied. Credits = 0.");
       setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
       return;
     }
@@ -224,6 +235,7 @@ export default function LeadPulseDashboard() {
     setProgress(0);
     setResults([]);
     setCounts({ mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 });
+    setTerminalLogs([`[RUN START] ${runIdRef.current}`, `[INFO] Initializing validation for ${allNumbers.length} numbers.`]);
 
     const userStr = localStorage.getItem('user');
     const userData = JSON.parse(userStr || '{}');
@@ -238,6 +250,8 @@ export default function LeadPulseDashboard() {
     const concurrency = batchInfo?.concurrency || 3;
     const numbersToProcess = allNumbers.slice(0, credits);
     
+    addLog(`[PIPELINE] Processing first ${numbersToProcess.length} numbers based on credit availability.`);
+
     const batches = [];
     for (let i = 0; i < numbersToProcess.length; i += batchSize) {
       batches.push(numbersToProcess.slice(i, i + batchSize));
@@ -252,6 +266,7 @@ export default function LeadPulseDashboard() {
         const currentBatchIdx = batchIdx++;
         const currentBatch = batches[currentBatchIdx];
         
+        addLog(`[BATCH ${currentBatchIdx + 1}] Sent to Core ${activeServer}`);
         const success = await processBatch(email, currentBatch, runIdRef.current, currentBatchIdx + 1);
         
         completedCount += currentBatch.length;
@@ -268,14 +283,19 @@ export default function LeadPulseDashboard() {
 
     await Promise.all(workers);
 
+    if (stopRequestedRef.current) {
+      addLog("[RUN STOPPED] Session terminated by user.");
+    } else {
+      addLog("[RUN COMPLETED] All batches processed successfully.");
+    }
+
     setIsProcessing(false);
     fetchAndSyncProfile();
-    fetchHistory(email); // Refresh history after every session conclusion
+    fetchHistory(email);
   };
 
   const processBatch = async (email: string, numbers: string[], runId: string, batchNo: number, retryCount = 0): Promise<boolean> => {
     if (stopRequestedRef.current) return false;
-
     const controller = new AbortController();
     abortControllersRef.current.push(controller);
     
@@ -294,6 +314,7 @@ export default function LeadPulseDashboard() {
       }
 
       if (response.status === 402) {
+        addLog("[ERROR] Halt: Credits exhausted.");
         setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
         return false;
       }
@@ -303,16 +324,17 @@ export default function LeadPulseDashboard() {
         setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
         return false;
       }
-      if (data.status === 'PAUSED') return true;
-
+      
       if (response.ok && (Array.isArray(data) || (data.results && Array.isArray(data.results)))) {
         const resultsArray = Array.isArray(data) ? data : data.results;
+        addLog(`[BATCH ${batchNo}] Response received. Found ${resultsArray.filter((r:any) => r.valid).length} valid numbers.`);
         updateUI(resultsArray);
       }
 
       return true;
     } catch (err: any) {
       if (err.name === 'AbortError') return false;
+      addLog(`[BATCH ${batchNo}] Connection lost. Retrying...`);
       if (retryCount < 1 && !stopRequestedRef.current) return processBatch(email, numbers, runId, batchNo, retryCount + 1);
       return true; 
     } finally {
@@ -333,7 +355,7 @@ export default function LeadPulseDashboard() {
       error: item.error
     }));
 
-    setResults(prev => [...mapped, ...prev].slice(0, 10000));
+    setResults(prev => [...mapped, ...prev].slice(0, 5000));
     mapped.forEach(item => {
       const type = (item.type || '').toLowerCase();
       setCounts(c => {
@@ -362,6 +384,7 @@ export default function LeadPulseDashboard() {
       try { await stopValidation(email, runIdRef.current); } catch (e) {}
     }
     setIsProcessing(false);
+    addLog("[MANUAL STOP] Emergency halt requested.");
     fetchHistory(email);
     toast({ title: "Paused", description: "Validation stopped." });
   };
@@ -383,7 +406,6 @@ export default function LeadPulseDashboard() {
       const res = await getBatchDetails({ email, batchId, filter });
       if (res.success) {
         setBatchDetails(res.results || []);
-        // Calculate breakdown for the specific batch/session
         const stats = { mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 };
         (res.results || []).forEach((item: any) => {
           const type = (item.line_type || '').toLowerCase();
@@ -458,6 +480,14 @@ export default function LeadPulseDashboard() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileUpload} 
+        accept=".xlsx,.xls,.csv,.txt" 
+        className="hidden" 
+      />
+
       <Tabs defaultValue="tool" className="w-full">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
           <div className="flex flex-col gap-2">
@@ -498,36 +528,71 @@ export default function LeadPulseDashboard() {
 
         <TabsContent value="tool" className="space-y-8 outline-none">
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-            <Card className="xl:col-span-1 border-white/10 bg-card shadow-2xl rounded-[2rem] overflow-hidden">
-              <div className={cn("h-1.5 w-full", activeServer === 2 ? "bg-accent" : "bg-primary")} />
-              <CardHeader className="pt-6">
-                <CardTitle className="text-[10px] font-black uppercase flex items-center gap-2 opacity-70 tracking-[0.2em]">
-                  <Terminal className="h-3 w-3" /> Input Console
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6 px-6 pb-8">
-                <Textarea 
-                  placeholder="Paste numbers..." 
-                  value={numberInput} 
-                  onChange={e => setNumberInput(e.target.value)} 
-                  className="min-h-[350px] font-code text-xs bg-black/40 border-white/5 rounded-2xl resize-none shadow-inner" 
-                  disabled={isProcessing} 
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <Button onClick={handleStart} disabled={isProcessing || !numberInput.trim()} className="h-16 bg-primary text-white font-black italic rounded-2xl text-xl">
-                    {isProcessing ? <Loader2 className="animate-spin" /> : "START"}
+            <div className="xl:col-span-1 space-y-6">
+              <Card className="border-white/10 bg-card shadow-2xl rounded-[2rem] overflow-hidden">
+                <div className={cn("h-1.5 w-full", activeServer === 2 ? "bg-accent" : "bg-primary")} />
+                <CardHeader className="pt-6 flex flex-row items-center justify-between">
+                  <CardTitle className="text-[10px] font-black uppercase flex items-center gap-2 opacity-70 tracking-[0.2em]">
+                    <Terminal className="h-3 w-3" /> Input Console
+                  </CardTitle>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-8 w-8 rounded-lg bg-white/5 hover:bg-white/10 text-muted-foreground"
+                    title="Upload File"
+                  >
+                    <Upload className="h-4 w-4" />
                   </Button>
-                  <Button onClick={handleStop} disabled={!isProcessing} variant="destructive" className="h-16 font-black italic rounded-2xl text-xl">
-                    STOP
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                </CardHeader>
+                <CardContent className="space-y-6 px-6 pb-8">
+                  <Textarea 
+                    placeholder="Paste numbers (one per line)..." 
+                    value={numberInput} 
+                    onChange={e => setNumberInput(e.target.value)} 
+                    className="min-h-[300px] font-code text-xs bg-black/40 border-white/5 rounded-2xl resize-none shadow-inner p-4" 
+                    disabled={isProcessing} 
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button onClick={handleStart} disabled={isProcessing || !numberInput.trim()} className="h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg active:scale-95 transition-all">
+                      {isProcessing ? <Loader2 className="animate-spin" /> : "START"}
+                    </Button>
+                    <Button onClick={handleStop} disabled={!isProcessing} variant="destructive" className="h-16 font-black italic rounded-2xl text-xl shadow-lg active:scale-95 transition-all">
+                      STOP
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Live Terminal Log */}
+              <Card className="border-white/5 bg-black/60 rounded-[2rem] overflow-hidden shadow-2xl">
+                 <div className="p-4 border-b border-white/5 bg-white/5 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                       <Cpu className="h-3 w-3 text-primary" />
+                       <span className="text-[8px] font-black uppercase tracking-widest opacity-50">Live Terminal</span>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => setTerminalLogs(["[CLEARED] Terminal reset."])} className="h-6 w-6 rounded-md hover:bg-white/10">
+                       <Trash2 className="h-3 w-3 opacity-30" />
+                    </Button>
+                 </div>
+                 <ScrollArea className="h-[200px] font-code text-[10px] p-4 text-primary/80">
+                    <div className="space-y-1">
+                       {terminalLogs.map((log, i) => (
+                         <div key={i} className="flex gap-2 border-l border-primary/20 pl-2">
+                            <span className="opacity-30">{i+1}</span>
+                            <span>{log}</span>
+                         </div>
+                       ))}
+                       <div ref={terminalEndRef} />
+                    </div>
+                 </ScrollArea>
+              </Card>
+            </div>
 
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4">
                 {dashboardStats.map(item => (
-                  <Card key={item.id} className={cn("p-5 rounded-[2rem] border-2 group shadow-2xl relative overflow-hidden bg-gradient-to-br", item.bgGradient, item.borderColor)}>
+                  <Card key={item.id} className={cn("p-5 rounded-[2rem] border-2 group shadow-2xl relative overflow-hidden bg-gradient-to-br transition-transform hover:scale-105", item.bgGradient, item.borderColor)}>
                     <div className={cn("absolute -right-4 -top-4 opacity-10", item.iconColor)}><item.icon className="h-16 w-16" /></div>
                     <p className="text-[9px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1.5"><item.icon className="h-3 w-3" /> {item.label}</p>
                     <h3 className={cn("text-4xl font-black italic tracking-tighter text-3d", item.textColor)}>{item.count}</h3>
@@ -544,7 +609,7 @@ export default function LeadPulseDashboard() {
               </Card>
 
               <Card className="bg-card/60 rounded-[2.5rem] overflow-hidden border-white/5 shadow-3xl">
-                <ScrollArea className="h-[500px]">
+                <ScrollArea className="h-[520px]">
                   <Table>
                     <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-xl">
                       <TableRow className="border-white/5 h-16">
@@ -556,26 +621,35 @@ export default function LeadPulseDashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {results.map(res => (
-                        <TableRow key={res.id} className="h-20 border-white/5 hover:bg-white/5 transition-all">
-                          <TableCell className="px-10 font-code font-black text-primary text-sm">{res.number}</TableCell>
-                          <TableCell>
-                            <Badge className={cn(
-                              res.status === 'success' ? 'bg-green-500/10 text-green-500' : 
-                              res.status === 'fake' ? 'bg-amber-500/10 text-amber-500' : 
-                              res.status === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-red-500/10 text-red-500',
-                              "border-none text-[8px] font-black px-4 py-1 uppercase rounded-lg"
-                            )}>
-                              {res.type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-[11px] font-black italic opacity-80">{res.location}</TableCell>
-                          <TableCell className="text-[11px] font-bold italic opacity-40">{res.carrier}</TableCell>
-                          <TableCell className="text-right px-10">
-                             <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary px-3 uppercase">{res.provider === 'phonevalidator' ? 'CORE 2' : 'CORE 1'}</Badge>
+                      {results.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="h-96 text-center opacity-10">
+                            <Activity className="h-20 w-20 mx-auto mb-4" />
+                            <p className="font-black italic uppercase text-2xl">Engine Idle</p>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ) : (
+                        results.map(res => (
+                          <TableRow key={res.id} className="h-20 border-white/5 hover:bg-white/5 transition-all">
+                            <TableCell className="px-10 font-code font-black text-primary text-sm">{res.number}</TableCell>
+                            <TableCell>
+                              <Badge className={cn(
+                                res.status === 'success' ? 'bg-green-500/10 text-green-500' : 
+                                res.status === 'fake' ? 'bg-amber-500/10 text-amber-500' : 
+                                res.status === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-red-500/10 text-red-500',
+                                "border-none text-[8px] font-black px-4 py-1 uppercase rounded-lg"
+                              )}>
+                                {res.type}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-[11px] font-black italic opacity-80">{res.location}</TableCell>
+                            <TableCell className="text-[11px] font-bold italic opacity-40">{res.carrier}</TableCell>
+                            <TableCell className="text-right px-10">
+                               <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary px-3 uppercase">{res.provider === 'phonevalidator' ? 'CORE 2' : 'CORE 1'}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
                     </TableBody>
                   </Table>
                 </ScrollArea>
@@ -659,7 +733,6 @@ export default function LeadPulseDashboard() {
            </DialogHeader>
 
            <div className="p-8 space-y-8">
-              {/* Colorful Session Stats Breakdown */}
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
                 {detailStats.map((stat, i) => (
                   <div key={i} className={cn("p-4 rounded-2xl border border-white/5 flex flex-col items-center text-center", stat.bg)}>
