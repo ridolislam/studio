@@ -99,6 +99,7 @@ export default function LeadPulseDashboard() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const terminalEndRef = useRef<HTMLDivElement>(null);
+  const resultsTableRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   
   const stopRequestedRef = useRef(false);
@@ -173,19 +174,7 @@ export default function LeadPulseDashboard() {
       const res = await getUserHistory({ email: targetEmail, limit: 100 });
       if (res.success) {
         const rawHistory = res.history || [];
-        const sessionMap: Record<string, BatchRecord> = {};
-        rawHistory.forEach((record: any) => {
-          const runId = record.runId || record.id;
-          if (!sessionMap[runId]) {
-            sessionMap[runId] = { ...record, total: 0, processed: 0, valid: 0, invalid: 0, failed: 0 };
-          }
-          sessionMap[runId].total += record.total;
-          sessionMap[runId].processed += record.processed;
-          sessionMap[runId].valid += record.valid;
-          sessionMap[runId].invalid += record.invalid;
-          sessionMap[runId].failed += record.failed;
-        });
-        setHistory(Object.values(sessionMap).sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()));
+        setHistory(rawHistory.sort((a: any, b: any) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()));
       }
     } catch (e) {
       console.error("History fetch error");
@@ -228,6 +217,11 @@ export default function LeadPulseDashboard() {
       return;
     }
 
+    // Auto-scroll to results
+    setTimeout(() => {
+      resultsTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+
     setIsProcessing(true);
     stopRequestedRef.current = false;
     abortControllersRef.current = [];
@@ -246,15 +240,15 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    const batchSize = batchInfo?.batchSize || 25;
+    const currentBatchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
     const numbersToProcess = allNumbers.slice(0, credits);
     
     addLog(`[PIPELINE] Processing first ${numbersToProcess.length} numbers based on credit availability.`);
 
     const batches = [];
-    for (let i = 0; i < numbersToProcess.length; i += batchSize) {
-      batches.push(numbersToProcess.slice(i, i + batchSize));
+    for (let i = 0; i < numbersToProcess.length; i += currentBatchSize) {
+      batches.push(numbersToProcess.slice(i, i + currentBatchSize));
     }
 
     let batchIdx = 0;
@@ -307,9 +301,9 @@ export default function LeadPulseDashboard() {
         signal: controller.signal
       });
 
-      const creditsLeft = response.headers.get('X-Credits-Left');
-      if (creditsLeft) {
-        const val = parseInt(creditsLeft);
+      const creditsLeftHeader = response.headers.get('X-Credits-Left');
+      if (creditsLeftHeader) {
+        const val = parseInt(creditsLeftHeader);
         if (!isNaN(val)) updateCreditsState(val);
       }
 
@@ -430,7 +424,7 @@ export default function LeadPulseDashboard() {
     const userData = JSON.parse(userStr || '{}');
     const email = userData.email || userData.data?.email || userData.user?.email;
     if (!email) return;
-    setIsDownloading(batchId + format);
+    setIsDownloading(batchId + format + filter);
     try {
       const res = await downloadBatchData({ email, batchId, format, filter });
       if (res.success && res.blob) {
@@ -446,6 +440,26 @@ export default function LeadPulseDashboard() {
     } finally {
       setIsDownloading(null);
     }
+  };
+
+  const handleDownloadLiveByCategory = (categoryId: string) => {
+    const filtered = results.filter(r => {
+      const type = (r.type || '').toLowerCase();
+      if (categoryId === 'failed') return r.status === 'error';
+      if (categoryId === 'fake') return r.status === 'fake';
+      if (categoryId === 'invalid') return r.status === 'invalid';
+      return type.includes(categoryId);
+    });
+
+    if (filtered.length === 0) {
+      toast({ variant: "destructive", title: "Empty", description: "No results in this category." });
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(filtered.map(r => ({ Number: r.number, Status: r.status, Type: r.type, Carrier: r.carrier, Location: r.location })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Results");
+    XLSX.writeFile(wb, `numcheckr-${categoryId}-${Date.now()}.csv`);
   };
 
   const formatExpiresAt = (expiryDate: string) => {
@@ -469,13 +483,13 @@ export default function LeadPulseDashboard() {
   ];
 
   const detailStats = [
-    { label: 'Mobile', count: batchStats.mobile, icon: Smartphone, color: 'text-primary', bg: 'bg-primary/10' },
-    { label: 'Landline', count: batchStats.landline, icon: Phone, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-    { label: 'VOIP', count: batchStats.voip, icon: Radio, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
-    { label: 'Toll Free', count: batchStats.toll_free, icon: Globe2, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
-    { label: 'Fake', count: batchStats.fake, icon: ShieldAlert, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-    { label: 'Invalid', count: batchStats.invalid, icon: AlertCircle, color: 'text-rose-500', bg: 'bg-rose-500/10' },
-    { label: 'Error', count: batchStats.failed, icon: Terminal, color: 'text-slate-400', bg: 'bg-slate-400/10' }
+    { label: 'Mobile', count: batchStats.mobile, icon: Smartphone, color: 'text-primary', bg: 'bg-primary/10', id: 'mobile' },
+    { label: 'Landline', count: batchStats.landline, icon: Phone, color: 'text-blue-500', bg: 'bg-blue-500/10', id: 'landline' },
+    { label: 'VOIP', count: batchStats.voip, icon: Radio, color: 'text-indigo-500', bg: 'bg-indigo-500/10', id: 'voip' },
+    { label: 'Toll Free', count: batchStats.toll_free, icon: Globe2, color: 'text-cyan-400', bg: 'bg-cyan-400/10', id: 'toll_free' },
+    { label: 'Fake', count: batchStats.fake, icon: ShieldAlert, color: 'text-amber-500', bg: 'bg-amber-500/10', id: 'fake' },
+    { label: 'Invalid', count: batchStats.invalid, icon: AlertCircle, color: 'text-rose-500', bg: 'bg-rose-500/10', id: 'invalid' },
+    { label: 'Error', count: batchStats.failed, icon: Terminal, color: 'text-slate-400', bg: 'bg-slate-400/10', id: 'failed' }
   ];
 
   return (
@@ -592,11 +606,23 @@ export default function LeadPulseDashboard() {
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4">
                 {dashboardStats.map(item => (
-                  <Card key={item.id} className={cn("p-5 rounded-[2rem] border-2 group shadow-2xl relative overflow-hidden bg-gradient-to-br transition-transform hover:scale-105", item.bgGradient, item.borderColor)}>
+                  <button 
+                    key={item.id} 
+                    onClick={() => handleDownloadLiveByCategory(item.id)}
+                    title={`Download ${item.label} Results`}
+                    className={cn(
+                      "p-5 rounded-[2rem] border-2 group shadow-2xl relative overflow-hidden bg-gradient-to-br transition-all hover:scale-105 active:scale-95 text-left w-full", 
+                      item.bgGradient, 
+                      item.borderColor
+                    )}
+                  >
                     <div className={cn("absolute -right-4 -top-4 opacity-10", item.iconColor)}><item.icon className="h-16 w-16" /></div>
                     <p className="text-[9px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1.5"><item.icon className="h-3 w-3" /> {item.label}</p>
                     <h3 className={cn("text-4xl font-black italic tracking-tighter text-3d", item.textColor)}>{item.count}</h3>
-                  </Card>
+                    <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Download className={cn("h-4 w-4", item.iconColor)} />
+                    </div>
+                  </button>
                 ))}
               </div>
 
@@ -608,7 +634,7 @@ export default function LeadPulseDashboard() {
                 <Progress value={progress} className="h-4 bg-black/40 rounded-full" />
               </Card>
 
-              <Card className="bg-card/60 rounded-[2.5rem] overflow-hidden border-white/5 shadow-3xl">
+              <Card ref={resultsTableRef} className="bg-card/60 rounded-[2.5rem] overflow-hidden border-white/5 shadow-3xl">
                 <ScrollArea className="h-[520px]">
                   <Table>
                     <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-xl">
@@ -735,11 +761,20 @@ export default function LeadPulseDashboard() {
            <div className="p-8 space-y-8">
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
                 {detailStats.map((stat, i) => (
-                  <div key={i} className={cn("p-4 rounded-2xl border border-white/5 flex flex-col items-center text-center", stat.bg)}>
+                  <button 
+                    key={i} 
+                    onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'csv', stat.id)}
+                    title={`Download ${stat.label} from this batch`}
+                    className={cn(
+                      "p-4 rounded-2xl border border-white/5 flex flex-col items-center text-center transition-all hover:scale-105 active:scale-95 group relative", 
+                      stat.bg
+                    )}
+                  >
                     <stat.icon className={cn("h-4 w-4 mb-2", stat.color)} />
                     <span className="text-[8px] font-black uppercase opacity-60 mb-1">{stat.label}</span>
                     <span className={cn("text-xl font-black italic", stat.color)}>{stat.count}</span>
-                  </div>
+                    <Download className={cn("absolute top-2 right-2 h-2.5 w-2.5 opacity-0 group-hover:opacity-40 transition-opacity", stat.color)} />
+                  </button>
                 ))}
               </div>
 
