@@ -217,10 +217,10 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Auto-scroll to results
-    setTimeout(() => {
-      resultsTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
+    // Auto-scroll to results table
+    if (resultsTableRef.current) {
+      resultsTableRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
     setIsProcessing(true);
     stopRequestedRef.current = false;
