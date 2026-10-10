@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -118,7 +117,7 @@ export default function LeadPulseDashboard() {
       const res = await getBatchInfo();
       if (res.success) {
         setBatchInfo(res);
-        setActiveServer(res.activeServer);
+        setActiveServer(res.activeServer || 1);
       }
     } catch (e) {}
   };
@@ -217,24 +216,20 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Use fetched values or fallbacks
     const batchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
     
-    // Divide into batches
     const batches = [];
     for (let i = 0; i < allNumbers.length; i += batchSize) {
       batches.push(allNumbers.slice(i, i + batchSize));
     }
 
-    // Refresh batch info in background
     fetchBatchInfo();
 
     let batchIdx = 0;
     let completedCount = 0;
     const total = allNumbers.length;
 
-    // Worker function for parallel execution
     const runWorker = async () => {
       while (batchIdx < batches.length && !stopRequestedRef.current) {
         const currentBatchIdx = batchIdx++;
@@ -251,7 +246,6 @@ export default function LeadPulseDashboard() {
       }
     };
 
-    // Spin up workers based on concurrency
     const workers = [];
     for (let i = 0; i < Math.min(concurrency, batches.length); i++) {
       workers.push(runWorker());
@@ -282,7 +276,6 @@ export default function LeadPulseDashboard() {
         signal: controller.signal
       });
 
-      // Update credits from header if available
       const creditsLeft = response.headers.get('X-Credits-Left');
       if (creditsLeft) {
         const val = parseInt(creditsLeft);
@@ -314,12 +307,10 @@ export default function LeadPulseDashboard() {
     } catch (err: any) {
       if (err.name === 'AbortError') return false;
 
-      // Auto-retry once for connection issues
       if (retryCount < 1 && !stopRequestedRef.current) {
         return processBatch(email, numbers, runId, batchNo, retryCount + 1);
       }
 
-      // Mark as error if failed after retry
       updateUI(numbers.map(n => ({
         number: n,
         valid: false,
@@ -350,7 +341,6 @@ export default function LeadPulseDashboard() {
 
     setResults(prev => [...mapped, ...prev].slice(0, 10000));
 
-    // Update Counters
     mapped.forEach(item => {
       const type = (item.type || '').toLowerCase();
       setCounts(c => {
@@ -455,16 +445,15 @@ export default function LeadPulseDashboard() {
   };
 
   const statsConfig = [
-    { label: 'Mobile', count: counts.mobile, color: 'primary', icon: Smartphone, id: 'mobile', borderColor: 'border-primary/20', textColor: 'text-primary', iconColor: 'text-primary' },
-    { label: 'Landline', count: counts.landline, color: 'blue-500', icon: Phone, id: 'landline', borderColor: 'border-blue-500/20', textColor: 'text-blue-500', iconColor: 'text-blue-500' },
-    { label: 'VOIP', count: counts.voip, color: 'indigo-500', icon: Radio, id: 'voip', borderColor: 'border-indigo-500/20', textColor: 'text-indigo-500', iconColor: 'text-indigo-500' },
-    { label: 'Toll Free', count: counts.toll_free, color: 'cyan-400', icon: Globe2, id: 'toll_free', borderColor: 'border-cyan-400/20', textColor: 'text-cyan-400', iconColor: 'text-cyan-400' },
-    { label: 'Fake', count: counts.fake, color: 'amber-500', icon: ShieldAlert, id: 'fake', borderColor: 'border-amber-500/20', textColor: 'text-amber-500', iconColor: 'text-amber-500' },
-    { label: 'Invalid', count: counts.invalid, color: 'rose-500', icon: AlertCircle, id: 'invalid', borderColor: 'border-rose-500/20', textColor: 'text-rose-500', iconColor: 'text-rose-500' },
-    { label: 'Error', count: counts.failed, color: 'slate-400', icon: Terminal, id: 'failed', borderColor: 'border-slate-400/20', textColor: 'text-slate-400', iconColor: 'text-slate-400' }
+    { label: 'Mobile', count: counts.mobile, color: 'primary', icon: Smartphone, id: 'mobile', borderColor: 'border-primary/20', textColor: 'text-primary', iconColor: 'text-primary', bgGradient: 'from-primary/10 to-primary/5' },
+    { label: 'Landline', count: counts.landline, color: 'blue-500', icon: Phone, id: 'landline', borderColor: 'border-blue-500/20', textColor: 'text-blue-500', iconColor: 'text-blue-500', bgGradient: 'from-blue-500/10 to-blue-500/5' },
+    { label: 'VOIP', count: counts.voip, color: 'indigo-500', icon: Radio, id: 'voip', borderColor: 'border-indigo-500/20', textColor: 'text-indigo-500', iconColor: 'text-indigo-500', bgGradient: 'from-indigo-500/10 to-indigo-500/5' },
+    { label: 'Toll Free', count: counts.toll_free, color: 'cyan-400', icon: Globe2, id: 'toll_free', borderColor: 'border-cyan-400/20', textColor: 'text-cyan-400', iconColor: 'text-cyan-400', bgGradient: 'from-cyan-400/10 to-cyan-400/5' },
+    { label: 'Fake', count: counts.fake, color: 'amber-500', icon: ShieldAlert, id: 'fake', borderColor: 'border-amber-500/20', textColor: 'text-amber-500', iconColor: 'text-amber-500', bgGradient: 'from-amber-500/10 to-amber-500/5' },
+    { label: 'Invalid', count: counts.invalid, color: 'rose-500', icon: AlertCircle, id: 'invalid', borderColor: 'border-rose-500/20', textColor: 'text-rose-500', iconColor: 'text-rose-500', bgGradient: 'from-rose-500/10 to-rose-500/5' },
+    { label: 'Error', count: counts.failed, color: 'slate-400', icon: Terminal, id: 'failed', borderColor: 'border-slate-400/20', textColor: 'text-slate-400', iconColor: 'text-slate-400', bgGradient: 'from-slate-400/10 to-slate-400/5' }
   ];
 
-  // Logic to show real batch and unit info
   const displayBatchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
   const displayConcurrency = batchInfo?.concurrency || 3;
 
@@ -493,7 +482,7 @@ export default function LeadPulseDashboard() {
             
             <div className="flex flex-wrap items-center gap-3 px-2 mt-1">
                <div className="flex items-center gap-2">
-                  <div className={cn("h-2 w-2 rounded-full", activeServer === 2 ? "bg-accent" : "bg-primary animate-pulse")} />
+                  <div className={cn("h-2 w-2 rounded-full", activeServer === 2 ? "bg-accent shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-primary animate-pulse shadow-[0_0_8px_rgba(113,85,255,0.6)]")} />
                   <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">
                     {activeServer === 2 ? "Core 2 Distributed" : "Core 1 Standard"}
                   </span>
@@ -501,11 +490,11 @@ export default function LeadPulseDashboard() {
                <div className="h-4 w-px bg-white/10 mx-1" />
                <div className="flex items-center gap-2">
                   <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch Size:</span>
-                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{displayBatchSize}</Badge>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{displayBatchSize}</Badge>
                </div>
                <div className="flex items-center gap-2">
                   <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Unit Cycle:</span>
-                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{displayConcurrency}</Badge>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{displayConcurrency}</Badge>
                </div>
             </div>
           </div>
@@ -525,7 +514,7 @@ export default function LeadPulseDashboard() {
         <TabsContent value="tool" className="space-y-8 outline-none">
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
             <Card className="xl:col-span-1 border-white/10 bg-card shadow-2xl overflow-hidden rounded-[2rem]">
-              <div className={cn("h-1.5 w-full", activeServer === 2 ? "bg-accent" : "bg-primary")} />
+              <div className={cn("h-1.5 w-full", activeServer === 2 ? "bg-accent shadow-[0_0_10px_rgba(59,130,246,0.5)]" : "bg-primary shadow-[0_0_10px_rgba(113,85,255,0.5)]")} />
               <CardHeader className="flex flex-row items-center justify-between pt-6">
                 <CardTitle className="text-[10px] font-black uppercase flex items-center gap-2 opacity-70 tracking-[0.2em]">
                   <Terminal className="h-3 w-3" /> Input Console
@@ -587,7 +576,9 @@ export default function LeadPulseDashboard() {
                     key={item.id} 
                     className={cn(
                       "p-5 rounded-[2rem] border-2 transition-all group shadow-2xl bg-card/40 backdrop-blur-md overflow-hidden relative",
-                      item.borderColor
+                      item.borderColor,
+                      "bg-gradient-to-br",
+                      item.bgGradient
                     )}
                   >
                     <div className={cn("absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity", item.iconColor)}>
@@ -919,4 +910,3 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
-

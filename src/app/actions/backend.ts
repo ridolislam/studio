@@ -62,9 +62,9 @@ export async function getBatchInfo() {
       cache: 'no-store',
     });
     const res = await safeJson(response);
-    return res.success ? res : { success: false, recommendedBatchSize: 25, concurrency: 3, keysAvailable: false };
+    return res.success ? res : { success: false, recommendedBatchSize: 25, concurrency: 3, keysAvailable: false, activeServer: 1 };
   } catch (error) {
-    return { success: false, recommendedBatchSize: 25, concurrency: 3, keysAvailable: false };
+    return { success: false, recommendedBatchSize: 25, concurrency: 3, keysAvailable: false, activeServer: 1 };
   }
 }
 
