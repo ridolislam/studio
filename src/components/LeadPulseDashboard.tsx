@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -85,7 +86,6 @@ export default function LeadPulseDashboard() {
   const [showCreditModal, setShowCreditModal] = useState({ open: false, msg: '' });
   const [batchInfo, setBatchInfo] = useState<any>(null);
 
-  // Batch Details States
   const [selectedBatch, setSelectedBatch] = useState<BatchRecord | null>(null);
   const [batchDetails, setBatchDetails] = useState<any[]>([]);
   const [isLoadingBatchDetails, setIsLoadingBatchDetails] = useState(false);
@@ -376,7 +376,6 @@ export default function LeadPulseDashboard() {
     toast({ title: "Paused", description: "Validation stopped." });
   };
 
-  // History Detail Functions
   const openBatchDetails = async (batch: BatchRecord) => {
     setSelectedBatch(batch);
     setBatchFilter('all');
@@ -444,6 +443,16 @@ export default function LeadPulseDashboard() {
     return `Expires in ${diffHours} hours`;
   };
 
+  const statsConfig = [
+    { label: 'Mobile', count: counts.mobile, color: 'primary', icon: Smartphone, id: 'mobile', borderColor: 'border-primary/20', textColor: 'text-primary', iconColor: 'text-primary' },
+    { label: 'Landline', count: counts.landline, color: 'blue-500', icon: Phone, id: 'landline', borderColor: 'border-blue-500/20', textColor: 'text-blue-500', iconColor: 'text-blue-500' },
+    { label: 'VOIP', count: counts.voip, color: 'indigo-500', icon: Radio, id: 'voip', borderColor: 'border-indigo-500/20', textColor: 'text-indigo-500', iconColor: 'text-indigo-500' },
+    { label: 'Toll Free', count: counts.toll_free, color: 'cyan-400', icon: Globe2, id: 'toll_free', borderColor: 'border-cyan-400/20', textColor: 'text-cyan-400', iconColor: 'text-cyan-400' },
+    { label: 'Fake', count: counts.fake, color: 'amber-500', icon: ShieldAlert, id: 'fake', borderColor: 'border-amber-500/20', textColor: 'text-amber-500', iconColor: 'text-amber-500' },
+    { label: 'Invalid', count: counts.invalid, color: 'rose-500', icon: AlertCircle, id: 'invalid', borderColor: 'border-rose-500/20', textColor: 'text-rose-500', iconColor: 'text-rose-500' },
+    { label: 'Error', count: counts.failed, color: 'slate-400', icon: Terminal, id: 'failed', borderColor: 'border-slate-400/20', textColor: 'text-slate-400', iconColor: 'text-slate-400' }
+  ];
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <Tabs defaultValue="tool" className="w-full">
@@ -473,6 +482,15 @@ export default function LeadPulseDashboard() {
                   <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">
                     {activeServer === 2 ? "Core 2 Distributed" : "Core 1 Standard"}
                   </span>
+               </div>
+               <div className="h-4 w-px bg-white/10 mx-1" />
+               <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch:</span>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{batchInfo?.batchSize || 25}</Badge>
+               </div>
+               <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Units:</span>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2">{batchInfo?.concurrency || 3}</Badge>
                </div>
             </div>
           </div>
@@ -549,27 +567,26 @@ export default function LeadPulseDashboard() {
 
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4">
-                {[
-                  { label: 'Mobile', count: counts.mobile, color: 'primary', icon: Smartphone, id: 'mobile' },
-                  { label: 'Landline', count: counts.landline, color: 'blue-500', icon: Phone, id: 'landline' },
-                  { label: 'VOIP', count: counts.voip, color: 'purple-500', icon: Radio, id: 'voip' },
-                  { label: 'Toll Free', count: counts.toll_free, color: 'cyan-400', icon: Globe2, id: 'toll_free' },
-                  { label: 'Fake', count: counts.fake, color: 'amber-500', icon: ShieldAlert, id: 'fake' },
-                  { label: 'Invalid', count: counts.invalid, color: 'red-500', icon: AlertCircle, id: 'invalid' },
-                  { label: 'Error', count: counts.failed, color: 'slate-500', icon: Terminal, id: 'failed' }
-                ].map(item => (
+                {statsConfig.map(item => (
                   <Card 
                     key={item.id} 
                     className={cn(
-                      "p-4 rounded-[1.5rem] border-white/5 transition-all group shadow-xl bg-card/40 backdrop-blur-sm overflow-hidden relative",
+                      "p-5 rounded-[2rem] border-2 transition-all group shadow-2xl bg-card/40 backdrop-blur-md overflow-hidden relative",
+                      item.borderColor
                     )}
                   >
-                    <div className={cn("absolute top-0 left-0 w-full h-1 opacity-40", `bg-${item.color}`)} />
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="text-[8px] font-black uppercase tracking-widest opacity-50">{item.label}</p>
-                      <item.icon className="h-3 w-3 opacity-20" />
+                    <div className={cn("absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity", item.iconColor)}>
+                      <item.icon className="h-16 w-16" />
                     </div>
-                    <h3 className="text-3xl font-black italic tracking-tighter tabular-nums">{item.count}</h3>
+                    <div className="flex flex-col gap-1 relative z-10">
+                      <p className="text-[9px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1.5">
+                        <item.icon className={cn("h-3 w-3", item.iconColor)} />
+                        {item.label}
+                      </p>
+                      <h3 className={cn("text-4xl font-black italic tracking-tighter tabular-nums text-3d", item.textColor)}>
+                        {item.count}
+                      </h3>
+                    </div>
                   </Card>
                 ))}
               </div>
@@ -751,7 +768,6 @@ export default function LeadPulseDashboard() {
         </TabsContent>
       </Tabs>
 
-      {/* Batch Details Dialog */}
       <Dialog open={!!selectedBatch} onOpenChange={(o) => !o && setSelectedBatch(null)}>
         <DialogContent className="max-w-4xl border-white/10 bg-card rounded-[2.5rem] p-0 overflow-hidden">
            <DialogHeader className="p-8 border-b border-white/5 bg-white/5">
@@ -888,3 +904,4 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
+
