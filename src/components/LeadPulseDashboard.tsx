@@ -195,8 +195,9 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    if (credits < allNumbers.length) {
-      setShowCreditModal({ open: true, msg: "Your Credit Not Available to process this list." });
+    // Start even if credits are less than input, just process up to credit limit
+    if (credits <= 0) {
+      setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
       return;
     }
 
@@ -217,20 +218,22 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Refresh batch info in background to ensure latest config
     fetchBatchInfo();
 
     const batchSize = batchInfo?.batchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
     
+    // Only process up to the available credits
+    const numbersToProcess = allNumbers.slice(0, credits);
+    
     const batches = [];
-    for (let i = 0; i < allNumbers.length; i += batchSize) {
-      batches.push(allNumbers.slice(i, i + batchSize));
+    for (let i = 0; i < numbersToProcess.length; i += batchSize) {
+      batches.push(numbersToProcess.slice(i, i + batchSize));
     }
 
     let batchIdx = 0;
     let completedCount = 0;
-    const total = allNumbers.length;
+    const total = numbersToProcess.length;
 
     const runWorker = async () => {
       while (batchIdx < batches.length && !stopRequestedRef.current) {
@@ -456,7 +459,6 @@ export default function LeadPulseDashboard() {
     { label: 'Error', count: counts.failed, color: 'slate-400', icon: Terminal, id: 'failed', borderColor: 'border-slate-400/20', textColor: 'text-slate-400', iconColor: 'text-slate-400', bgGradient: 'from-slate-400/10 to-slate-400/5' }
   ];
 
-  // The user specifically wants to see recommendedBatchSize in the UI badge
   const displayBatchSize = batchInfo?.recommendedBatchSize || (batchInfo?.batchSize || 25);
   const displayConcurrency = batchInfo?.concurrency || 3;
 
@@ -913,4 +915,3 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
-
