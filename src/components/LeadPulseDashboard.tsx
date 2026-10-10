@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -80,7 +81,7 @@ export default function LeadPulseDashboard() {
   const [history, setHistory] = useState<BatchRecord[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [activeServer, setActiveServer] = useState<1 | 2>(1);
+  const [activeServer, setActiveServer] = useState<number>(1);
   const [counts, setCounts] = useState({ mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 });
   const [showCreditModal, setShowCreditModal] = useState({ open: false, msg: '' });
   const [batchInfo, setBatchInfo] = useState<any>(null);
@@ -216,15 +217,16 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    const batchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
+    // Refresh batch info in background to ensure latest config
+    fetchBatchInfo();
+
+    const batchSize = batchInfo?.batchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
     
     const batches = [];
     for (let i = 0; i < allNumbers.length; i += batchSize) {
       batches.push(allNumbers.slice(i, i + batchSize));
     }
-
-    fetchBatchInfo();
 
     let batchIdx = 0;
     let completedCount = 0;
@@ -454,7 +456,8 @@ export default function LeadPulseDashboard() {
     { label: 'Error', count: counts.failed, color: 'slate-400', icon: Terminal, id: 'failed', borderColor: 'border-slate-400/20', textColor: 'text-slate-400', iconColor: 'text-slate-400', bgGradient: 'from-slate-400/10 to-slate-400/5' }
   ];
 
-  const displayBatchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
+  // The user specifically wants to see recommendedBatchSize in the UI badge
+  const displayBatchSize = batchInfo?.recommendedBatchSize || (batchInfo?.batchSize || 25);
   const displayConcurrency = batchInfo?.concurrency || 3;
 
   return (
@@ -910,3 +913,4 @@ export default function LeadPulseDashboard() {
     </div>
   );
 }
+
