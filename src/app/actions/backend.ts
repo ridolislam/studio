@@ -62,9 +62,9 @@ export async function getBatchInfo() {
       cache: 'no-store',
     });
     const res = await safeJson(response);
-    return res.success ? res : { success: false, recommendedBatchSize: 10, keysAvailable: false };
+    return res.success ? res : { success: false, recommendedBatchSize: 25, concurrency: 3, keysAvailable: false };
   } catch (error) {
-    return { success: false, recommendedBatchSize: 10, keysAvailable: false };
+    return { success: false, recommendedBatchSize: 25, concurrency: 3, keysAvailable: false };
   }
 }
 
@@ -85,7 +85,7 @@ export async function syncUserProfile(email: string) {
   }
 }
 
-export async function stopValidation(email: string) {
+export async function stopValidation(email: string, runId: string) {
   try {
     const response = await fetch(`${API_BASE}/api/user/stop-validation`, {
       method: 'POST',
@@ -93,7 +93,7 @@ export async function stopValidation(email: string) {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, runId }),
       cache: 'no-store',
     });
     return await safeJson(response);
@@ -102,7 +102,7 @@ export async function stopValidation(email: string) {
   }
 }
 
-export async function getUserHistory(payload: { email: string }) {
+export async function getUserHistory(payload: { email: string; limit?: number }) {
   try {
     const response = await fetch(`${API_BASE}/api/user/history`, {
       method: 'POST',
@@ -116,6 +116,54 @@ export async function getUserHistory(payload: { email: string }) {
     return await safeJson(response);
   } catch (error) {
     return { success: false, message: 'Connection failed' };
+  }
+}
+
+export async function getBatchDetails(payload: { email: string; batchId: string; filter?: string }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/history-batch`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+    return await safeJson(response);
+  } catch (error) {
+    return { success: false, message: 'Failed to fetch batch details' };
+  }
+}
+
+export async function downloadBatchData(payload: { email: string; batchId: string; filter?: string; format: 'csv' | 'txt' }) {
+  try {
+    const response = await fetch(`${API_BASE}/api/user/history-download`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      const errorData = await safeJson(response);
+      throw new Error(errorData.message || 'Download failed');
+    }
+
+    const blob = await response.blob();
+    const contentDisposition = response.headers.get('Content-Disposition');
+    let filename = `numcheckr-batch-${Date.now()}.${payload.format}`;
+    
+    if (contentDisposition) {
+      const match = contentDisposition.match(/filename="(.+)"/);
+      if (match && match[1]) filename = match[1];
+    }
+
+    return { success: true, blob, filename };
+  } catch (error: any) {
+    return { success: false, message: error.message || 'Connection failed' };
   }
 }
 
@@ -266,21 +314,5 @@ export async function clearAdminKeys(payload: { secret: string }) {
     return await safeJson(response);
   } catch (error) {
     return { success: false, message: 'Wipe failed' };
-  }
-}
-
-export async function createOxapayInvoice(payload: { email: string, credits: number, payCurrency: string, network: string }) {
-  try {
-    const response = await fetch(`${API_BASE}/api/user/create-payment`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify(payload),
-    });
-    return await safeJson(response);
-  } catch (error) {
-    return { success: false, message: 'Payment gateway connection failed' };
   }
 }

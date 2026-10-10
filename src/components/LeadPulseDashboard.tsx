@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -20,7 +19,15 @@ import {
   Radio,
   Globe2,
   Layers,
-  Cpu
+  Cpu,
+  History as HistoryIcon,
+  Download,
+  Eye,
+  Calendar,
+  Clock,
+  ExternalLink,
+  ChevronRight,
+  Filter
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,10 +38,11 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { syncUserProfile, getUserHistory, getBatchInfo } from '@/app/actions/backend';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { syncUserProfile, getUserHistory, getBatchInfo, stopValidation, getBatchDetails, downloadBatchData } from '@/app/actions/backend';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface ValidationResult {
   id: string;
@@ -48,6 +56,20 @@ interface ValidationResult {
   error?: string;
 }
 
+interface BatchRecord {
+  id: string;
+  source: "dashboard" | "api";
+  runId: string;
+  batchNo: number | null;
+  sentAt: string;
+  total: number;
+  processed: number;
+  valid: number;
+  invalid: number;
+  failed: number;
+  expiresAt: string;
+}
+
 export default function LeadPulseDashboard() {
   const [numberInput, setNumberInput] = useState('');
   const [region, setRegion] = useState('1');
@@ -55,12 +77,20 @@ export default function LeadPulseDashboard() {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<ValidationResult[]>([]);
   const [credits, setCredits] = useState<number>(0);
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<BatchRecord[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [activeServer, setActiveServer] = useState<1 | 2>(1);
   const [counts, setCounts] = useState({ mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 });
   const [showCreditModal, setShowCreditModal] = useState({ open: false, msg: '' });
   const [batchInfo, setBatchInfo] = useState<any>(null);
+
+  // Batch Details States
+  const [selectedBatch, setSelectedBatch] = useState<BatchRecord | null>(null);
+  const [batchDetails, setBatchDetails] = useState<any[]>([]);
+  const [isLoadingBatchDetails, setIsLoadingBatchDetails] = useState(false);
+  const [batchFilter, setBatchFilter] = useState('all');
+  const [isDownloading, setIsDownloading] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -70,7 +100,6 @@ export default function LeadPulseDashboard() {
   const runIdRef = useRef<string>('');
 
   useEffect(() => {
-    // Immediate fetch on mount
     fetchBatchInfo();
     
     const userStr = localStorage.getItem('user');
@@ -78,9 +107,10 @@ export default function LeadPulseDashboard() {
       try {
         const userData = JSON.parse(userStr);
         setCredits(userData.credits || 0);
+        const email = userData.email || userData.data?.email || userData.user?.email;
+        if (email) fetchHistory(email);
       } catch(e) {}
     }
-    fetchHistory();
   }, []);
 
   const fetchBatchInfo = async () => {
@@ -120,16 +150,17 @@ export default function LeadPulseDashboard() {
     window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: newCredits } }));
   };
 
-  const fetchHistory = async () => {
-    const userStr = localStorage.getItem('user');
-    if (!userStr) return;
+  const fetchHistory = async (email: string) => {
+    if (!email) return;
+    setIsLoadingHistory(true);
     try {
-      const userData = JSON.parse(userStr);
-      const email = userData.email || userData.data?.email || userData.user?.email;
-      if (!email) return;
-      const res = await getUserHistory({ email });
+      const res = await getUserHistory({ email, limit: 100 });
       if (res.success) setHistory(res.history || []);
-    } catch (e) {}
+    } catch (e) {
+      console.error("History fetch error");
+    } finally {
+      setIsLoadingHistory(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,7 +217,6 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // Use pre-fetched batch info or defaults
     const batchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
     const batches = [];
@@ -194,20 +224,18 @@ export default function LeadPulseDashboard() {
       batches.push(allNumbers.slice(i, i + batchSize));
     }
 
-    // Refresh batch info in background for future
     fetchBatchInfo();
 
     let batchIdx = 0;
     let completedCount = 0;
     const total = allNumbers.length;
 
-    // Sliding Window Concurrency Pool
     const runWorker = async () => {
       while (batchIdx < batches.length && !stopRequestedRef.current) {
         const currentBatchIdx = batchIdx++;
         const currentBatch = batches[currentBatchIdx];
         
-        const success = await processBatch(email, currentBatch, runIdRef.current);
+        const success = await processBatch(email, currentBatch, runIdRef.current, currentBatchIdx + 1);
         if (!success) {
           stopRequestedRef.current = true;
           break;
@@ -218,7 +246,6 @@ export default function LeadPulseDashboard() {
       }
     };
 
-    // Parallel Execution
     const workers = [];
     for (let i = 0; i < Math.min(concurrency, batches.length); i++) {
       workers.push(runWorker());
@@ -232,10 +259,10 @@ export default function LeadPulseDashboard() {
     }
     
     fetchAndSyncProfile();
-    fetchHistory();
+    fetchHistory(email);
   };
 
-  const processBatch = async (email: string, numbers: string[], runId: string, retryCount = 0): Promise<boolean> => {
+  const processBatch = async (email: string, numbers: string[], runId: string, batchNo: number, retryCount = 0): Promise<boolean> => {
     if (stopRequestedRef.current) return false;
 
     const controller = new AbortController();
@@ -245,11 +272,10 @@ export default function LeadPulseDashboard() {
       const response = await fetch('https://numcheckr.onrender.com/api/user/validate-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, numbers, region, runId }),
+        body: JSON.stringify({ email, numbers, region, runId, batchNo }),
         signal: controller.signal
       });
 
-      // Update credits from header
       const creditsLeft = response.headers.get('X-Credits-Left');
       if (creditsLeft) {
         const val = parseInt(creditsLeft);
@@ -268,7 +294,7 @@ export default function LeadPulseDashboard() {
         return false;
       }
 
-      if (data.status === 'PAUSED') return true; // Stop current batch but don't fail entire run
+      if (data.status === 'PAUSED') return true;
 
       if (response.ok && (Array.isArray(data) || (data.results && Array.isArray(data.results)))) {
         updateUI(Array.isArray(data) ? data : data.results);
@@ -281,10 +307,9 @@ export default function LeadPulseDashboard() {
       if (err.name === 'AbortError') return false;
 
       if (retryCount < 1 && !stopRequestedRef.current) {
-        return processBatch(email, numbers, runId, retryCount + 1);
+        return processBatch(email, numbers, runId, batchNo, retryCount + 1);
       }
 
-      // Mark batch as failed
       updateUI(numbers.map(n => ({
         number: n,
         valid: false,
@@ -343,11 +368,7 @@ export default function LeadPulseDashboard() {
     
     if (email && runIdRef.current) {
       try {
-        await fetch('https://numcheckr.onrender.com/api/user/stop-validation', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, runId: runIdRef.current })
-        });
+        await stopValidation(email, runIdRef.current);
       } catch (e) {}
     }
 
@@ -355,27 +376,72 @@ export default function LeadPulseDashboard() {
     toast({ title: "Paused", description: "Validation stopped." });
   };
 
-  const downloadResults = (filter?: string) => {
-    let filtered = results;
-    if (filter) {
-      if (filter === 'mobile') filtered = results.filter(r => r.type.toLowerCase().includes('mobile'));
-      else if (filter === 'landline') filtered = results.filter(r => r.type.toLowerCase().includes('landline'));
-      else if (filter === 'voip') filtered = results.filter(r => r.type.toLowerCase().includes('voip'));
-      else if (filter === 'toll_free') filtered = results.filter(r => r.type.toLowerCase().includes('toll'));
-      else if (filter === 'fake') filtered = results.filter(r => r.status === 'fake');
-      else if (filter === 'invalid') filtered = results.filter(r => r.status === 'invalid');
-      else if (filter === 'failed') filtered = results.filter(r => r.status === 'error');
-    }
-    
-    if (filtered.length === 0) {
-      toast({ variant: "destructive", title: "Empty", description: "No results to export." });
-      return;
-    }
+  // History Detail Functions
+  const openBatchDetails = async (batch: BatchRecord) => {
+    setSelectedBatch(batch);
+    setBatchFilter('all');
+    fetchBatchDetails(batch.id, 'all');
+  };
 
-    const ws = XLSX.utils.json_to_sheet(filtered);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `numcheckr_results_${Date.now()}.xlsx`);
+  const fetchBatchDetails = async (batchId: string, filter: string) => {
+    const userStr = localStorage.getItem('user');
+    const userData = JSON.parse(userStr || '{}');
+    const email = userData.email || userData.data?.email || userData.user?.email;
+    if (!email) return;
+
+    setIsLoadingBatchDetails(true);
+    try {
+      const res = await getBatchDetails({ email, batchId, filter });
+      if (res.success) {
+        setBatchDetails(res.results || []);
+      } else if (res.message?.includes("expired")) {
+        toast({ variant: "destructive", title: "Expired", description: "This batch data has expired (7+ days old)." });
+        fetchHistory(email);
+        setSelectedBatch(null);
+      }
+    } finally {
+      setIsLoadingBatchDetails(false);
+    }
+  };
+
+  const handleDownloadHistory = async (batchId: string, format: 'csv' | 'txt', filter: string = 'all') => {
+    const userStr = localStorage.getItem('user');
+    const userData = JSON.parse(userStr || '{}');
+    const email = userData.email || userData.data?.email || userData.user?.email;
+    if (!email) return;
+
+    setIsDownloading(batchId + format);
+    try {
+      const res = await downloadBatchData({ email, batchId, format, filter });
+      if (res.success && res.blob) {
+        const url = window.URL.createObjectURL(res.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast({ title: "Download Started", description: `File: ${res.filename}` });
+      } else {
+        toast({ variant: "destructive", title: "Error", description: res.message || "Download failed" });
+      }
+    } finally {
+      setIsDownloading(null);
+    }
+  };
+
+  const formatExpiresAt = (expiryDate: string) => {
+    const now = new Date();
+    const expiry = new Date(expiryDate);
+    const diffMs = expiry.getTime() - now.getTime();
+    if (diffMs <= 0) return "Expired";
+    
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    if (diffHours >= 24) {
+      return `Expires in ${Math.floor(diffHours / 24)} days`;
+    }
+    return `Expires in ${diffHours} hours`;
   };
 
   return (
@@ -385,7 +451,20 @@ export default function LeadPulseDashboard() {
           <div className="flex flex-col gap-2">
             <TabsList className="bg-card/60 p-1 rounded-2xl h-14 border border-white/5">
               <TabsTrigger value="tool" className="rounded-xl font-black italic uppercase text-xs h-full px-8">Validator</TabsTrigger>
-              <TabsTrigger value="history" className="rounded-xl font-black italic uppercase text-xs h-full px-8">Logs</TabsTrigger>
+              <TabsTrigger 
+                value="history" 
+                onClick={() => {
+                   const userStr = localStorage.getItem('user');
+                   if (userStr) {
+                     const userData = JSON.parse(userStr);
+                     const email = userData.email || userData.data?.email || userData.user?.email;
+                     if (email) fetchHistory(email);
+                   }
+                }}
+                className="rounded-xl font-black italic uppercase text-xs h-full px-8"
+              >
+                History
+              </TabsTrigger>
             </TabsList>
             
             <div className="flex flex-wrap items-center gap-3 px-2 mt-1">
@@ -395,24 +474,6 @@ export default function LeadPulseDashboard() {
                     {activeServer === 2 ? "Core 2 Distributed" : "Core 1 Standard"}
                   </span>
                </div>
-               {batchInfo && (
-                 <>
-                   <div className="h-3 w-px bg-white/10" />
-                   <div className="flex items-center gap-1">
-                      <Layers className="h-3 w-3 text-primary opacity-50" />
-                      <span className="text-[9px] font-black uppercase opacity-40 tracking-widest">
-                        Batch: {batchInfo.batchSize || batchInfo.recommendedBatchSize || 25}
-                      </span>
-                   </div>
-                   <div className="h-3 w-px bg-white/10" />
-                   <div className="flex items-center gap-1">
-                      <Cpu className="h-3 w-3 text-accent opacity-50" />
-                      <span className="text-[9px] font-black uppercase opacity-40 tracking-widest">
-                        Unit Cycle: {batchInfo.concurrency || 3}
-                      </span>
-                   </div>
-                 </>
-               )}
             </div>
           </div>
 
@@ -499,14 +560,13 @@ export default function LeadPulseDashboard() {
                 ].map(item => (
                   <Card 
                     key={item.id} 
-                    onClick={() => downloadResults(item.id)} 
                     className={cn(
-                      "p-4 rounded-[1.5rem] border-white/5 transition-all cursor-pointer hover:scale-105 active:scale-95 group shadow-xl bg-card/40 backdrop-blur-sm overflow-hidden relative",
+                      "p-4 rounded-[1.5rem] border-white/5 transition-all group shadow-xl bg-card/40 backdrop-blur-sm overflow-hidden relative",
                     )}
                   >
                     <div className={cn("absolute top-0 left-0 w-full h-1 opacity-40", `bg-${item.color}`)} />
                     <div className="flex justify-between items-start mb-2">
-                      <p className="text-[8px] font-black uppercase tracking-widest opacity-50 group-hover:text-primary transition-colors">{item.label}</p>
+                      <p className="text-[8px] font-black uppercase tracking-widest opacity-50">{item.label}</p>
                       <item.icon className="h-3 w-3 opacity-20" />
                     </div>
                     <h3 className="text-3xl font-black italic tracking-tighter tabular-nums">{item.count}</h3>
@@ -523,7 +583,6 @@ export default function LeadPulseDashboard() {
                      </div>
                      <div>
                        <span className="text-[10px] font-black uppercase opacity-60 tracking-[0.3em]">Processing Pipeline</span>
-                       <p className="text-xs font-bold text-muted-foreground mt-0.5">Instant parallel cycle active</p>
                      </div>
                    </div>
                    <div className="flex items-baseline gap-2">
@@ -541,10 +600,6 @@ export default function LeadPulseDashboard() {
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Intelligence Feed</span>
                     </div>
-                  </div>
-                  <div className="flex gap-2 w-full sm:w-auto">
-                    <Button variant="outline" className="flex-1 sm:flex-none h-10 rounded-xl text-[9px] font-black uppercase px-6 border-white/10 hover:bg-primary/10 transition-colors" onClick={() => downloadResults('mobile')}>Mobiles Only</Button>
-                    <Button variant="outline" className="flex-1 sm:flex-none h-10 rounded-xl text-[9px] font-black uppercase px-6 bg-primary text-white border-none shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all" onClick={() => downloadResults()}>Export Result</Button>
                   </div>
                 </div>
                 <div className="overflow-x-auto max-h-[550px] custom-scrollbar">
@@ -602,45 +657,209 @@ export default function LeadPulseDashboard() {
 
         <TabsContent value="history" className="outline-none">
           <Card className="border-white/5 bg-card/60 rounded-[3rem] overflow-hidden p-8 shadow-3xl backdrop-blur-2xl">
-             <div className="flex justify-between items-center mb-8">
+             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                <div className="flex items-center gap-4">
-                 <div className="p-3 bg-primary/10 rounded-2xl"><Activity className="h-6 w-6 text-primary" /></div>
+                 <div className="p-3 bg-primary/10 rounded-2xl"><HistoryIcon className="h-6 w-6 text-primary" /></div>
                  <div>
-                   <h3 className="text-2xl font-black italic uppercase tracking-tighter">System Event Stream</h3>
+                   <h3 className="text-2xl font-black italic uppercase tracking-tighter">Validation History</h3>
+                   <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1 flex items-center gap-1.5">
+                     <Clock className="h-3 w-3" /> Records are kept for 7 days
+                   </p>
                  </div>
                </div>
-               <Button variant="outline" size="sm" onClick={fetchHistory} className="h-12 font-black uppercase text-[10px] border-white/10 px-8 rounded-xl hover:bg-primary/10 transition-all">Sync Records</Button>
+               <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                   const userStr = localStorage.getItem('user');
+                   if (userStr) {
+                     const userData = JSON.parse(userStr);
+                     const email = userData.email || userData.data?.email || userData.user?.email;
+                     if (email) fetchHistory(email);
+                   }
+                }} 
+                disabled={isLoadingHistory}
+                className="h-12 font-black uppercase text-[10px] border-white/10 px-8 rounded-xl hover:bg-primary/10 transition-all"
+               >
+                 {isLoadingHistory ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4 mr-2" />} Sync Logs
+               </Button>
              </div>
-             <Table>
-               <TableHeader className="bg-muted/10">
-                 <TableRow className="border-white/5 h-16">
-                   <TableHead className="px-10 text-[10px] font-black uppercase tracking-widest">Event Timeline</TableHead>
-                   <TableHead className="text-[10px] font-black uppercase tracking-widest">Transaction Signature</TableHead>
-                   <TableHead className="text-right px-10 text-[10px] font-black uppercase tracking-widest">Unit Impact</TableHead>
-                 </TableRow>
-               </TableHeader>
-               <TableBody>
-                 {history.length === 0 ? (
-                   <TableRow><TableCell colSpan={3} className="h-80 text-center opacity-10 font-black italic uppercase text-3xl tracking-tighter">No Events Streamed</TableCell></TableRow>
-                 ) : (
-                   history.map((item, i) => (
-                     <TableRow key={i} className="border-white/5 h-20 hover:bg-white/5 transition-colors">
-                       <TableCell className="px-10 text-xs font-code opacity-40">{new Date(item.date).toLocaleString()}</TableCell>
-                       <TableCell className="font-black italic text-sm tracking-tight">{item.description}</TableCell>
-                       <TableCell className={cn(
-                         "text-right px-10 font-black italic text-2xl tracking-tighter",
-                         item.type === 'Payment' ? 'text-green-500' : 'text-primary'
-                       )}>
-                         {item.type === 'Payment' ? '+' : '-'}{item.amount}
-                       </TableCell>
-                     </TableRow>
-                   ))
-                 )}
-               </TableBody>
-             </Table>
+
+             {history.length === 0 && !isLoadingHistory ? (
+                <div className="h-96 flex flex-col items-center justify-center space-y-6 opacity-20">
+                  <HistoryIcon className="h-20 w-20" />
+                  <p className="font-black italic uppercase text-xl text-center max-w-sm">No history yet. Your validated batches from the last 7 days will appear here.</p>
+                </div>
+             ) : (
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                 {history.map((batch) => (
+                   <Card 
+                    key={batch.id} 
+                    className="group bg-black/40 border-white/5 rounded-3xl p-6 hover:border-primary/30 transition-all shadow-xl relative overflow-hidden flex flex-col"
+                   >
+                     <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-20 transition-opacity">
+                        {batch.source === 'api' ? <Globe2 className="h-12 w-12" /> : <Smartphone className="h-12 w-12" />}
+                     </div>
+                     
+                     <div className="flex justify-between items-start mb-6">
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black uppercase text-primary tracking-widest">
+                            {batch.source === 'api' ? 'API Request' : `Batch #${batch.batchNo || 'N/A'}`}
+                          </p>
+                          <h4 className="text-lg font-black italic">{new Date(batch.sentAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</h4>
+                        </div>
+                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black uppercase px-2">
+                          {batch.total} Numbers
+                        </Badge>
+                     </div>
+
+                     <div className="grid grid-cols-3 gap-2 mb-8">
+                        <div className="bg-green-500/5 p-3 rounded-2xl border border-green-500/10 text-center">
+                           <p className="text-[7px] font-black uppercase text-green-500 opacity-60 mb-1">Valid</p>
+                           <p className="text-lg font-black italic text-green-500">{batch.valid}</p>
+                        </div>
+                        <div className="bg-white/5 p-3 rounded-2xl border border-white/10 text-center">
+                           <p className="text-[7px] font-black uppercase opacity-60 mb-1">Invalid</p>
+                           <p className="text-lg font-black italic">{batch.invalid}</p>
+                        </div>
+                        {batch.failed > 0 && (
+                          <div className="bg-amber-500/5 p-3 rounded-2xl border border-amber-500/10 text-center">
+                            <p className="text-[7px] font-black uppercase text-amber-500 opacity-60 mb-1">Failed</p>
+                            <p className="text-lg font-black italic text-amber-500">{batch.failed}</p>
+                          </div>
+                        )}
+                     </div>
+
+                     <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
+                        <span className="text-[9px] font-black uppercase text-muted-foreground opacity-50 flex items-center gap-1.5">
+                           <Clock className="h-3 w-3" /> {formatExpiresAt(batch.expiresAt)}
+                        </span>
+                        <div className="flex gap-2">
+                          <Button size="icon" variant="ghost" onClick={() => handleDownloadHistory(batch.id, 'csv')} className="h-8 w-8 rounded-lg text-primary hover:bg-primary/10">
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="ghost" onClick={() => openBatchDetails(batch)} className="h-8 w-8 rounded-lg text-white hover:bg-white/10">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
+                     </div>
+                   </Card>
+                 ))}
+               </div>
+             )}
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Batch Details Dialog */}
+      <Dialog open={!!selectedBatch} onOpenChange={(o) => !o && setSelectedBatch(null)}>
+        <DialogContent className="max-w-4xl border-white/10 bg-card rounded-[2.5rem] p-0 overflow-hidden">
+           <DialogHeader className="p-8 border-b border-white/5 bg-white/5">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+                <div>
+                   <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">
+                     {selectedBatch?.source === 'api' ? 'API Engine Log' : `Batch #${selectedBatch?.batchNo} Analysis`}
+                   </DialogTitle>
+                   <DialogDescription className="text-[9px] font-bold uppercase tracking-widest mt-1 opacity-60">
+                     Execution ID: {selectedBatch?.runId}
+                   </DialogDescription>
+                </div>
+                <div className="flex items-center gap-3">
+                   <div className="flex flex-col items-end">
+                      <span className="text-[8px] font-black uppercase text-primary opacity-60">Success Rate</span>
+                      <span className="text-xl font-black italic text-green-500">
+                        {selectedBatch ? Math.round((selectedBatch.valid / selectedBatch.total) * 100) : 0}%
+                      </span>
+                   </div>
+                   <div className="h-8 w-px bg-white/10 mx-2" />
+                   <div className="flex flex-col items-end">
+                      <span className="text-[8px] font-black uppercase opacity-60">Process Time</span>
+                      <span className="text-xl font-black italic">{new Date(selectedBatch?.sentAt || '').toLocaleTimeString([], { timeStyle: 'short' })}</span>
+                   </div>
+                </div>
+              </div>
+           </DialogHeader>
+
+           <div className="p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                 <Tabs value={batchFilter} onValueChange={(val) => { setBatchFilter(val); if(selectedBatch) fetchBatchDetails(selectedBatch.id, val); }} className="w-full sm:w-auto">
+                    <TabsList className="bg-black/40 border border-white/5 h-12 rounded-xl p-1">
+                       <TabsTrigger value="all" className="rounded-lg text-[9px] font-black uppercase px-6">All</TabsTrigger>
+                       <TabsTrigger value="valid" className="rounded-lg text-[9px] font-black uppercase px-6 data-[state=active]:bg-green-500/20 data-[state=active]:text-green-500">Valid</TabsTrigger>
+                       <TabsTrigger value="invalid" className="rounded-lg text-[9px] font-black uppercase px-6 data-[state=active]:bg-white/10">Invalid</TabsTrigger>
+                       <TabsTrigger value="failed" className="rounded-lg text-[9px] font-black uppercase px-6 data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500">Failed</TabsTrigger>
+                    </TabsList>
+                 </Tabs>
+                 <div className="flex gap-2 w-full sm:w-auto">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'txt', batchFilter)} 
+                      disabled={!!isDownloading}
+                      className="flex-1 sm:flex-none h-12 rounded-xl border-white/10 text-[9px] font-black uppercase px-6"
+                    >
+                       TXT
+                    </Button>
+                    <Button 
+                      onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'csv', batchFilter)} 
+                      disabled={!!isDownloading}
+                      className="flex-1 sm:flex-none h-12 rounded-xl bg-primary text-white text-[9px] font-black uppercase px-6 shadow-lg shadow-primary/20"
+                    >
+                       {isDownloading === (selectedBatch?.id + 'csv') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 mr-2" />} Download CSV
+                    </Button>
+                 </div>
+              </div>
+
+              <ScrollArea className="h-[450px] rounded-3xl border border-white/5 bg-black/40">
+                 {isLoadingBatchDetails ? (
+                    <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-50">
+                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                       <p className="text-[10px] font-black uppercase tracking-widest">Streaming results...</p>
+                    </div>
+                 ) : (
+                    <Table>
+                      <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-md">
+                        <TableRow className="border-white/5 h-14">
+                          <TableHead className="px-8 text-[9px] font-black uppercase tracking-widest">Identity</TableHead>
+                          <TableHead className="text-[9px] font-black uppercase tracking-widest">Status</TableHead>
+                          <TableHead className="text-[9px] font-black uppercase tracking-widest">Type</TableHead>
+                          <TableHead className="text-[9px] font-black uppercase tracking-widest">Carrier / Provider</TableHead>
+                          <TableHead className="text-right px-8 text-[9px] font-black uppercase tracking-widest">Geo</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {batchDetails.length === 0 ? (
+                           <TableRow><TableCell colSpan={5} className="h-64 text-center opacity-20 font-black italic uppercase">No data found</TableCell></TableRow>
+                        ) : (
+                          batchDetails.map((item, idx) => (
+                            <TableRow key={idx} className="border-white/5 h-16 hover:bg-white/5">
+                              <TableCell className="px-8 font-code text-[11px] font-black text-primary">{item.number}</TableCell>
+                              <TableCell>
+                                <Badge className={cn(
+                                  item.error ? 'bg-amber-500/10 text-amber-500' : (item.valid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'),
+                                  "border-none text-[8px] font-black uppercase px-3 py-1 rounded-md"
+                                )}>
+                                  {item.error ? 'FAILED' : (item.valid ? 'VALID' : 'INVALID')}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-[10px] font-bold uppercase opacity-60">{item.line_type || '-'}</TableCell>
+                              <TableCell className="text-[10px] font-medium italic opacity-40">{item.carrier || '-'}</TableCell>
+                              <TableCell className="text-right px-8 text-[10px] font-black italic opacity-60">{item.country_name || item.location || '-'}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                 )}
+              </ScrollArea>
+           </div>
+           
+           <DialogFooter className="p-8 border-t border-white/5 bg-white/5 flex justify-center items-center">
+              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em] opacity-40 italic">
+                 Security Layer: numcheckr distributed validation protocol v4.0
+              </p>
+           </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showCreditModal.open} onOpenChange={(o) => setShowCreditModal(s => ({...s, open: o}))}>
         <DialogContent className="border-primary/20 bg-card rounded-[2.5rem] max-w-sm text-center shadow-3xl p-10">
