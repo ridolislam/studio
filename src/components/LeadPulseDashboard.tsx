@@ -18,7 +18,9 @@ import {
   Smartphone,
   Phone,
   Radio,
-  Globe2
+  Globe2,
+  Layers,
+  Cpu
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -68,7 +70,9 @@ export default function LeadPulseDashboard() {
   const runIdRef = useRef<string>('');
 
   useEffect(() => {
+    // Immediate fetch on mount
     fetchBatchInfo();
+    
     const userStr = localStorage.getItem('user');
     if (userStr) {
       try {
@@ -152,11 +156,9 @@ export default function LeadPulseDashboard() {
   };
 
   const handleStart = async () => {
-    // 1. Data Cleaning
     const allNumbers = Array.from(new Set(numberInput.split('\n').map(n => n.trim()).filter(n => n !== '')));
     if (allNumbers.length === 0) return;
 
-    // 2. Pre-check API Key & Credits
     if (batchInfo?.keysAvailable === false) {
       toast({ variant: "destructive", title: "Action Required", description: "No API Key Left in System." });
       return;
@@ -167,7 +169,6 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // 3. Reset Engine
     setIsProcessing(true);
     stopRequestedRef.current = false;
     abortControllersRef.current = [];
@@ -185,7 +186,7 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    // 4. Batching
+    // Use pre-fetched batch info or defaults
     const batchSize = batchInfo?.batchSize || batchInfo?.recommendedBatchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
     const batches = [];
@@ -193,54 +194,53 @@ export default function LeadPulseDashboard() {
       batches.push(allNumbers.slice(i, i + batchSize));
     }
 
-    // Refresh batch info in background for next time
+    // Refresh batch info in background for future
     fetchBatchInfo();
 
-    // 5. Sliding Window Concurrency Pool
-    let index = 0;
-    let completedNumbers = 0;
+    let batchIdx = 0;
+    let completedCount = 0;
     const total = allNumbers.length;
 
-    const workers = Array(Math.min(concurrency, batches.length)).fill(null).map(async () => {
-      while (index < batches.length && !stopRequestedRef.current) {
-        const currentBatchIndex = index++;
-        const currentBatch = batches[currentBatchIndex];
+    // Sliding Window Concurrency Pool
+    const runWorker = async () => {
+      while (batchIdx < batches.length && !stopRequestedRef.current) {
+        const currentBatchIdx = batchIdx++;
+        const currentBatch = batches[currentBatchIdx];
         
-        const batchResults = await processBatch(email, currentBatch, runIdRef.current);
-        
-        if (batchResults === 'ABORT_ALL') {
+        const success = await processBatch(email, currentBatch, runIdRef.current);
+        if (!success) {
           stopRequestedRef.current = true;
           break;
         }
 
-        completedNumbers += currentBatch.length;
-        setProgress(Math.round((completedNumbers / total) * 100));
+        completedCount += currentBatch.length;
+        setProgress(Math.round((completedCount / total) * 100));
       }
-    });
+    };
+
+    // Parallel Execution
+    const workers = [];
+    for (let i = 0; i < Math.min(concurrency, batches.length); i++) {
+      workers.push(runWorker());
+    }
 
     await Promise.all(workers);
 
-    // 6. Finalize
     setIsProcessing(false);
     if (!stopRequestedRef.current) {
       toast({ title: "Done", description: "Validation cycle completed." });
-    } else {
-      toast({ title: "Paused", description: "Validation stopped by user or system." });
     }
     
-    // Refresh history and profile one last time
     fetchAndSyncProfile();
     fetchHistory();
   };
 
-  const processBatch = async (email: string, numbers: string[], runId: string, retryCount = 0): Promise<'CONTINUE' | 'ABORT_ALL'> => {
-    if (stopRequestedRef.current) return 'ABORT_ALL';
+  const processBatch = async (email: string, numbers: string[], runId: string, retryCount = 0): Promise<boolean> => {
+    if (stopRequestedRef.current) return false;
 
     const controller = new AbortController();
     abortControllersRef.current.push(controller);
     
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
-
     try {
       const response = await fetch('https://numcheckr.onrender.com/api/user/validate-batch', {
         method: 'POST',
@@ -249,62 +249,53 @@ export default function LeadPulseDashboard() {
         signal: controller.signal
       });
 
-      clearTimeout(timeoutId);
-
-      // Check for Credit Header
+      // Update credits from header
       const creditsLeft = response.headers.get('X-Credits-Left');
-      if (creditsLeft) updateCreditsState(parseInt(creditsLeft));
+      if (creditsLeft) {
+        const val = parseInt(creditsLeft);
+        if (!isNaN(val)) updateCreditsState(val);
+      }
 
       if (response.status === 402) {
         setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
-        return 'ABORT_ALL';
+        return false;
       }
 
       const data = await response.json();
 
       if (data.status === 'NO_CREDITS') {
         setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
-        return 'ABORT_ALL';
+        return false;
       }
 
-      if (data.status === 'PAUSED') {
-        return 'ABORT_ALL';
-      }
+      if (data.status === 'PAUSED') return true; // Stop current batch but don't fail entire run
 
-      if (data.status === 'ERROR' || !response.ok) {
+      if (response.ok && (Array.isArray(data) || (data.results && Array.isArray(data.results)))) {
+        updateUI(Array.isArray(data) ? data : data.results);
+      } else {
         throw new Error(data.message || 'Server error');
       }
 
-      if (Array.isArray(data)) {
-        updateUI(data);
-      } else if (data.results && Array.isArray(data.results)) {
-        updateUI(data.results);
-      }
-
-      return 'CONTINUE';
+      return true;
     } catch (err: any) {
-      clearTimeout(timeoutId);
-      
-      if (err.name === 'AbortError') return 'ABORT_ALL';
+      if (err.name === 'AbortError') return false;
 
       if (retryCount < 1 && !stopRequestedRef.current) {
         return processBatch(email, numbers, runId, retryCount + 1);
       }
 
-      // Mark entire batch as error if retry fails
-      const errorResults = numbers.map(n => ({
+      // Mark batch as failed
+      updateUI(numbers.map(n => ({
         number: n,
         valid: false,
-        error: err.message || "Network Timeout",
-        status: 'error'
-      }));
-      updateUI(errorResults);
-      
-      if (err.message?.includes("No API Key Left")) return 'ABORT_ALL';
+        error: err.message || "Connection Failed",
+        line_type: 'Error'
+      })));
 
-      return 'CONTINUE';
+      if (err.message?.includes("No API Key") || err.message?.includes("Credit")) return false;
+
+      return true; 
     } finally {
-      // Cleanup controller from ref list
       abortControllersRef.current = abortControllersRef.current.filter(c => c !== controller);
     }
   };
@@ -326,7 +317,6 @@ export default function LeadPulseDashboard() {
 
     mapped.forEach(item => {
       const type = (item.type || '').toLowerCase();
-      
       setCounts(c => {
         const next = { ...c };
         if (item.status === 'error') next.failed += 1;
@@ -344,12 +334,9 @@ export default function LeadPulseDashboard() {
 
   const handleStop = async () => {
     stopRequestedRef.current = true;
-    
-    // 1. Abort all ongoing fetches
     abortControllersRef.current.forEach(c => c.abort());
     abortControllersRef.current = [];
 
-    // 2. Notify server to stop
     const userStr = localStorage.getItem('user');
     const userData = JSON.parse(userStr || '{}');
     const email = userData.email || userData.data?.email || userData.user?.email;
@@ -365,7 +352,7 @@ export default function LeadPulseDashboard() {
     }
 
     setIsProcessing(false);
-    toast({ title: "Stopped", description: "All active processes paused." });
+    toast({ title: "Paused", description: "Validation stopped." });
   };
 
   const downloadResults = (filter?: string) => {
@@ -381,14 +368,14 @@ export default function LeadPulseDashboard() {
     }
     
     if (filtered.length === 0) {
-      toast({ variant: "destructive", title: "Empty", description: "No results found for this filter." });
+      toast({ variant: "destructive", title: "Empty", description: "No results to export." });
       return;
     }
 
     const ws = XLSX.utils.json_to_sheet(filtered);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
-    XLSX.writeFile(wb, `numcheckr_${filter || 'all'}_${Date.now()}.xlsx`);
+    XLSX.writeFile(wb, `numcheckr_results_${Date.now()}.xlsx`);
   };
 
   return (
@@ -400,11 +387,32 @@ export default function LeadPulseDashboard() {
               <TabsTrigger value="tool" className="rounded-xl font-black italic uppercase text-xs h-full px-8">Validator</TabsTrigger>
               <TabsTrigger value="history" className="rounded-xl font-black italic uppercase text-xs h-full px-8">Logs</TabsTrigger>
             </TabsList>
-            <div className="flex items-center gap-2 px-2">
-               <div className={cn("h-2 w-2 rounded-full", activeServer === 2 ? "bg-accent" : "bg-primary animate-pulse")} />
-               <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">
-                 {activeServer === 2 ? "Core 2 Distributed Mode" : "Core 1 Standard Mode"}
-               </span>
+            
+            <div className="flex flex-wrap items-center gap-3 px-2 mt-1">
+               <div className="flex items-center gap-2">
+                  <div className={cn("h-2 w-2 rounded-full", activeServer === 2 ? "bg-accent" : "bg-primary animate-pulse")} />
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">
+                    {activeServer === 2 ? "Core 2 Distributed" : "Core 1 Standard"}
+                  </span>
+               </div>
+               {batchInfo && (
+                 <>
+                   <div className="h-3 w-px bg-white/10" />
+                   <div className="flex items-center gap-1">
+                      <Layers className="h-3 w-3 text-primary opacity-50" />
+                      <span className="text-[9px] font-black uppercase opacity-40 tracking-widest">
+                        Batch: {batchInfo.batchSize || batchInfo.recommendedBatchSize || 25}
+                      </span>
+                   </div>
+                   <div className="h-3 w-px bg-white/10" />
+                   <div className="flex items-center gap-1">
+                      <Cpu className="h-3 w-3 text-accent opacity-50" />
+                      <span className="text-[9px] font-black uppercase opacity-40 tracking-widest">
+                        Unit Cycle: {batchInfo.concurrency || 3}
+                      </span>
+                   </div>
+                 </>
+               )}
             </div>
           </div>
 
@@ -448,7 +456,6 @@ export default function LeadPulseDashboard() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between px-1">
                     <label className="text-[9px] font-black uppercase opacity-50 tracking-widest">Routing Region</label>
-                    <Badge variant="outline" className="text-[8px] font-black uppercase opacity-40">Fastest</Badge>
                   </div>
                   <Select value={region} onValueChange={setRegion}>
                     <SelectTrigger className="bg-black/40 border-white/5 h-12 rounded-xl text-xs font-bold"><SelectValue /></SelectTrigger>
@@ -516,7 +523,7 @@ export default function LeadPulseDashboard() {
                      </div>
                      <div>
                        <span className="text-[10px] font-black uppercase opacity-60 tracking-[0.3em]">Processing Pipeline</span>
-                       <p className="text-xs font-bold text-muted-foreground mt-0.5">Real-time distributed cycle</p>
+                       <p className="text-xs font-bold text-muted-foreground mt-0.5">Instant parallel cycle active</p>
                      </div>
                    </div>
                    <div className="flex items-baseline gap-2">
@@ -533,7 +540,6 @@ export default function LeadPulseDashboard() {
                     <div className={cn("h-3 w-3 rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]", isProcessing ? "bg-green-500 animate-pulse" : "bg-muted")} />
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Intelligence Feed</span>
-                      <span className="text-[9px] font-bold text-muted-foreground opacity-50">Monitoring {results.length} recent units</span>
                     </div>
                   </div>
                   <div className="flex gap-2 w-full sm:w-auto">
@@ -546,7 +552,7 @@ export default function LeadPulseDashboard() {
                     <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-xl">
                       <TableRow className="border-white/5 h-16">
                         <TableHead className="px-10 text-[10px] font-black uppercase tracking-widest">Number Identity</TableHead>
-                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Verification Status</TableHead>
+                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Status</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Geo/Location</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
                         <TableHead className="text-right px-10 text-[10px] font-black uppercase tracking-widest">Engine</TableHead>
@@ -566,10 +572,7 @@ export default function LeadPulseDashboard() {
                         results.map(res => (
                           <TableRow key={res.id} className="h-20 border-white/5 hover:bg-white/5 transition-all group relative">
                             <TableCell className="px-10">
-                              <div className="flex flex-col">
-                                <span className="font-code font-black text-primary text-sm tracking-tight group-hover:scale-105 transition-transform origin-left">{res.number}</span>
-                                {res.error && <span className="text-[8px] font-bold text-destructive uppercase mt-1">{res.error.substring(0, 30)}...</span>}
-                              </div>
+                              <span className="font-code font-black text-primary text-sm tracking-tight group-hover:scale-105 transition-transform origin-left">{res.number}</span>
                             </TableCell>
                             <TableCell>
                               <Badge className={cn(
@@ -584,10 +587,7 @@ export default function LeadPulseDashboard() {
                             <TableCell className="text-[11px] font-black italic opacity-80">{res.location}</TableCell>
                             <TableCell className="text-[11px] font-bold italic opacity-40">{res.carrier}</TableCell>
                             <TableCell className="text-right px-10">
-                               <div className="flex flex-col items-end">
-                                 <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary uppercase px-3">{res.provider === 'phonevalidator' ? 'CORE 2' : 'CORE 1'}</Badge>
-                                 <span className="text-[7px] font-bold opacity-20 uppercase mt-1">{new Date(res.timestamp).toLocaleTimeString()}</span>
-                               </div>
+                               <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary uppercase px-3">{res.provider === 'phonevalidator' ? 'CORE 2' : 'CORE 1'}</Badge>
                             </TableCell>
                           </TableRow>
                         ))
@@ -607,7 +607,6 @@ export default function LeadPulseDashboard() {
                  <div className="p-3 bg-primary/10 rounded-2xl"><Activity className="h-6 w-6 text-primary" /></div>
                  <div>
                    <h3 className="text-2xl font-black italic uppercase tracking-tighter">System Event Stream</h3>
-                   <p className="text-xs font-bold text-muted-foreground uppercase opacity-50 tracking-widest">Global logs & transactions</p>
                  </div>
                </div>
                <Button variant="outline" size="sm" onClick={fetchHistory} className="h-12 font-black uppercase text-[10px] border-white/10 px-8 rounded-xl hover:bg-primary/10 transition-all">Sync Records</Button>
@@ -644,7 +643,7 @@ export default function LeadPulseDashboard() {
       </Tabs>
 
       <Dialog open={showCreditModal.open} onOpenChange={(o) => setShowCreditModal(s => ({...s, open: o}))}>
-        <DialogContent className="border-primary/20 bg-card rounded-[2.5rem] max-w-sm text-center shadow-3xl p-10 animate-in zoom-in-95 duration-300">
+        <DialogContent className="border-primary/20 bg-card rounded-[2.5rem] max-w-sm text-center shadow-3xl p-10">
           <div className="mx-auto w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mb-8 border-2 border-destructive/20 shadow-lg shadow-destructive/10">
             <ShieldAlert className="h-12 w-12 text-destructive" />
           </div>
