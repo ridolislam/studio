@@ -28,7 +28,9 @@ import {
   Clock,
   ExternalLink,
   ChevronRight,
-  Filter
+  Filter,
+  FileText,
+  BarChart3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -88,6 +90,7 @@ export default function LeadPulseDashboard() {
 
   const [selectedBatch, setSelectedBatch] = useState<BatchRecord | null>(null);
   const [batchDetails, setBatchDetails] = useState<any[]>([]);
+  const [batchStats, setBatchStats] = useState({ mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 });
   const [isLoadingBatchDetails, setIsLoadingBatchDetails] = useState(false);
   const [batchFilter, setBatchFilter] = useState('all');
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
@@ -101,7 +104,6 @@ export default function LeadPulseDashboard() {
 
   useEffect(() => {
     fetchBatchInfo();
-    
     const userStr = localStorage.getItem('user');
     if (userStr) {
       try {
@@ -150,12 +152,32 @@ export default function LeadPulseDashboard() {
     window.dispatchEvent(new CustomEvent('creditsUpdated', { detail: { credits: newCredits } }));
   };
 
-  const fetchHistory = async (email: string) => {
-    if (!email) return;
+  const fetchHistory = async (email?: string) => {
+    const targetEmail = email || (typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}').email : null);
+    if (!targetEmail) return;
     setIsLoadingHistory(true);
     try {
-      const res = await getUserHistory({ email, limit: 100 });
-      if (res.success) setHistory(res.history || []);
+      const res = await getUserHistory({ email: targetEmail, limit: 100 });
+      if (res.success) {
+        // Grouping logic: Treat runId as a session. 
+        // If server returns individual batches, we group them by runId to show a clean session history.
+        const rawHistory = res.history || [];
+        const sessionMap: Record<string, BatchRecord> = {};
+        
+        rawHistory.forEach((record: any) => {
+          const runId = record.runId || record.id;
+          if (!sessionMap[runId]) {
+            sessionMap[runId] = { ...record, total: 0, processed: 0, valid: 0, invalid: 0, failed: 0 };
+          }
+          sessionMap[runId].total += record.total;
+          sessionMap[runId].processed += record.processed;
+          sessionMap[runId].valid += record.valid;
+          sessionMap[runId].invalid += record.invalid;
+          sessionMap[runId].failed += record.failed;
+        });
+
+        setHistory(Object.values(sessionMap).sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()));
+      }
     } catch (e) {
       console.error("History fetch error");
     } finally {
@@ -190,12 +212,6 @@ export default function LeadPulseDashboard() {
     const allNumbers = Array.from(new Set(numberInput.split('\n').map(n => n.trim()).filter(n => n !== '')));
     if (allNumbers.length === 0) return;
 
-    if (batchInfo?.keysAvailable === false) {
-      toast({ variant: "destructive", title: "Action Required", description: "No API Key Left in System." });
-      return;
-    }
-
-    // Start even if credits are less than input, just process up to credit limit
     if (credits <= 0) {
       setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
       return;
@@ -218,12 +234,8 @@ export default function LeadPulseDashboard() {
       return;
     }
 
-    fetchBatchInfo();
-
     const batchSize = batchInfo?.batchSize || 25;
     const concurrency = batchInfo?.concurrency || 3;
-    
-    // Only process up to the available credits
     const numbersToProcess = allNumbers.slice(0, credits);
     
     const batches = [];
@@ -241,13 +253,11 @@ export default function LeadPulseDashboard() {
         const currentBatch = batches[currentBatchIdx];
         
         const success = await processBatch(email, currentBatch, runIdRef.current, currentBatchIdx + 1);
-        if (!success) {
-          stopRequestedRef.current = true;
-          break;
-        }
-
+        
         completedCount += currentBatch.length;
         setProgress(Math.round((completedCount / total) * 100));
+
+        if (!success || stopRequestedRef.current) break;
       }
     };
 
@@ -259,12 +269,8 @@ export default function LeadPulseDashboard() {
     await Promise.all(workers);
 
     setIsProcessing(false);
-    if (!stopRequestedRef.current) {
-      toast({ title: "Done", description: "Validation cycle completed." });
-    }
-    
     fetchAndSyncProfile();
-    fetchHistory(email);
+    fetchHistory(email); // Refresh history after every session conclusion
   };
 
   const processBatch = async (email: string, numbers: string[], runId: string, batchNo: number, retryCount = 0): Promise<boolean> => {
@@ -293,38 +299,21 @@ export default function LeadPulseDashboard() {
       }
 
       const data = await response.json();
-
       if (data.status === 'NO_CREDITS') {
         setShowCreditModal({ open: true, msg: "Your Credit Not Available" });
         return false;
       }
-
       if (data.status === 'PAUSED') return true;
 
       if (response.ok && (Array.isArray(data) || (data.results && Array.isArray(data.results)))) {
         const resultsArray = Array.isArray(data) ? data : data.results;
         updateUI(resultsArray);
-      } else {
-        throw new Error(data.message || 'Server error');
       }
 
       return true;
     } catch (err: any) {
       if (err.name === 'AbortError') return false;
-
-      if (retryCount < 1 && !stopRequestedRef.current) {
-        return processBatch(email, numbers, runId, batchNo, retryCount + 1);
-      }
-
-      updateUI(numbers.map(n => ({
-        number: n,
-        valid: false,
-        error: err.message || "Connection Failed",
-        line_type: 'Error'
-      })));
-
-      if (err.message?.includes("No API Key") || err.message?.includes("Credit")) return false;
-
+      if (retryCount < 1 && !stopRequestedRef.current) return processBatch(email, numbers, runId, batchNo, retryCount + 1);
       return true; 
     } finally {
       abortControllersRef.current = abortControllersRef.current.filter(c => c !== controller);
@@ -345,7 +334,6 @@ export default function LeadPulseDashboard() {
     }));
 
     setResults(prev => [...mapped, ...prev].slice(0, 10000));
-
     mapped.forEach(item => {
       const type = (item.type || '').toLowerCase();
       setCounts(c => {
@@ -367,18 +355,14 @@ export default function LeadPulseDashboard() {
     stopRequestedRef.current = true;
     abortControllersRef.current.forEach(c => c.abort());
     abortControllersRef.current = [];
-
     const userStr = localStorage.getItem('user');
     const userData = JSON.parse(userStr || '{}');
     const email = userData.email || userData.data?.email || userData.user?.email;
-    
     if (email && runIdRef.current) {
-      try {
-        await stopValidation(email, runIdRef.current);
-      } catch (e) {}
+      try { await stopValidation(email, runIdRef.current); } catch (e) {}
     }
-
     setIsProcessing(false);
+    fetchHistory(email);
     toast({ title: "Paused", description: "Validation stopped." });
   };
 
@@ -399,10 +383,20 @@ export default function LeadPulseDashboard() {
       const res = await getBatchDetails({ email, batchId, filter });
       if (res.success) {
         setBatchDetails(res.results || []);
-      } else if (res.message?.includes("expired")) {
-        toast({ variant: "destructive", title: "Expired", description: "This batch data has expired (7+ days old)." });
-        fetchHistory(email);
-        setSelectedBatch(null);
+        // Calculate breakdown for the specific batch/session
+        const stats = { mobile: 0, landline: 0, voip: 0, toll_free: 0, invalid: 0, fake: 0, failed: 0 };
+        (res.results || []).forEach((item: any) => {
+          const type = (item.line_type || '').toLowerCase();
+          if (item.error) stats.failed += 1;
+          else if (!item.valid) stats.invalid += 1;
+          else if (item.phonevalidator?.fake_number?.toLowerCase() === 'yes') stats.fake += 1;
+          else if (type.includes('mobile')) stats.mobile += 1;
+          else if (type.includes('landline')) stats.landline += 1;
+          else if (type.includes('voip')) stats.voip += 1;
+          else if (type.includes('toll')) stats.toll_free += 1;
+          else stats.invalid += 1;
+        });
+        setBatchStats(stats);
       }
     } finally {
       setIsLoadingBatchDetails(false);
@@ -414,7 +408,6 @@ export default function LeadPulseDashboard() {
     const userData = JSON.parse(userStr || '{}');
     const email = userData.email || userData.data?.email || userData.user?.email;
     if (!email) return;
-
     setIsDownloading(batchId + format);
     try {
       const res = await downloadBatchData({ email, batchId, format, filter });
@@ -427,9 +420,6 @@ export default function LeadPulseDashboard() {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-        toast({ title: "Download Started", description: `File: ${res.filename}` });
-      } else {
-        toast({ variant: "destructive", title: "Error", description: res.message || "Download failed" });
       }
     } finally {
       setIsDownloading(null);
@@ -441,26 +431,30 @@ export default function LeadPulseDashboard() {
     const expiry = new Date(expiryDate);
     const diffMs = expiry.getTime() - now.getTime();
     if (diffMs <= 0) return "Expired";
-    
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    if (diffHours >= 24) {
-      return `Expires in ${Math.floor(diffHours / 24)} days`;
-    }
+    if (diffHours >= 24) return `Expires in ${Math.floor(diffHours / 24)} days`;
     return `Expires in ${diffHours} hours`;
   };
 
-  const statsConfig = [
-    { label: 'Mobile', count: counts.mobile, color: 'primary', icon: Smartphone, id: 'mobile', borderColor: 'border-primary/20', textColor: 'text-primary', iconColor: 'text-primary', bgGradient: 'from-primary/10 to-primary/5' },
-    { label: 'Landline', count: counts.landline, color: 'blue-500', icon: Phone, id: 'landline', borderColor: 'border-blue-500/20', textColor: 'text-blue-500', iconColor: 'text-blue-500', bgGradient: 'from-blue-500/10 to-blue-500/5' },
-    { label: 'VOIP', count: counts.voip, color: 'indigo-500', icon: Radio, id: 'voip', borderColor: 'border-indigo-500/20', textColor: 'text-indigo-500', iconColor: 'text-indigo-500', bgGradient: 'from-indigo-500/10 to-indigo-500/5' },
-    { label: 'Toll Free', count: counts.toll_free, color: 'cyan-400', icon: Globe2, id: 'toll_free', borderColor: 'border-cyan-400/20', textColor: 'text-cyan-400', iconColor: 'text-cyan-400', bgGradient: 'from-cyan-400/10 to-cyan-400/5' },
-    { label: 'Fake', count: counts.fake, color: 'amber-500', icon: ShieldAlert, id: 'fake', borderColor: 'border-amber-500/20', textColor: 'text-amber-500', iconColor: 'text-amber-500', bgGradient: 'from-amber-500/10 to-amber-500/5' },
-    { label: 'Invalid', count: counts.invalid, color: 'rose-500', icon: AlertCircle, id: 'invalid', borderColor: 'border-rose-500/20', textColor: 'text-rose-500', iconColor: 'text-rose-500', bgGradient: 'from-rose-500/10 to-rose-500/5' },
-    { label: 'Error', count: counts.failed, color: 'slate-400', icon: Terminal, id: 'failed', borderColor: 'border-slate-400/20', textColor: 'text-slate-400', iconColor: 'text-slate-400', bgGradient: 'from-slate-400/10 to-slate-400/5' }
+  const dashboardStats = [
+    { label: 'Mobile', count: counts.mobile, icon: Smartphone, id: 'mobile', textColor: 'text-primary', iconColor: 'text-primary', bgGradient: 'from-primary/10 to-primary/5', borderColor: 'border-primary/20' },
+    { label: 'Landline', count: counts.landline, icon: Phone, id: 'landline', textColor: 'text-blue-500', iconColor: 'text-blue-500', bgGradient: 'from-blue-500/10 to-blue-500/5', borderColor: 'border-blue-500/20' },
+    { label: 'VOIP', count: counts.voip, icon: Radio, id: 'voip', textColor: 'text-indigo-500', iconColor: 'text-indigo-500', bgGradient: 'from-indigo-500/10 to-indigo-500/5', borderColor: 'border-indigo-500/20' },
+    { label: 'Toll Free', count: counts.toll_free, icon: Globe2, id: 'toll_free', textColor: 'text-cyan-400', iconColor: 'text-cyan-400', bgGradient: 'from-cyan-400/10 to-cyan-400/5', borderColor: 'border-cyan-400/20' },
+    { label: 'Fake', count: counts.fake, icon: ShieldAlert, id: 'fake', textColor: 'text-amber-500', iconColor: 'text-amber-500', bgGradient: 'from-amber-500/10 to-amber-500/5', borderColor: 'border-amber-500/20' },
+    { label: 'Invalid', count: counts.invalid, icon: AlertCircle, id: 'invalid', textColor: 'text-rose-500', iconColor: 'text-rose-500', bgGradient: 'from-rose-500/10 to-rose-500/5', borderColor: 'border-rose-500/20' },
+    { label: 'Error', count: counts.failed, icon: Terminal, id: 'failed', textColor: 'text-slate-400', iconColor: 'text-slate-400', bgGradient: 'from-slate-400/10 to-slate-400/5', borderColor: 'border-slate-400/20' }
   ];
 
-  const displayBatchSize = batchInfo?.recommendedBatchSize || (batchInfo?.batchSize || 25);
-  const displayConcurrency = batchInfo?.concurrency || 3;
+  const detailStats = [
+    { label: 'Mobile', count: batchStats.mobile, icon: Smartphone, color: 'text-primary', bg: 'bg-primary/10' },
+    { label: 'Landline', count: batchStats.landline, icon: Phone, color: 'text-blue-500', bg: 'bg-blue-500/10' },
+    { label: 'VOIP', count: batchStats.voip, icon: Radio, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
+    { label: 'Toll Free', count: batchStats.toll_free, icon: Globe2, color: 'text-cyan-400', bg: 'bg-cyan-400/10' },
+    { label: 'Fake', count: batchStats.fake, icon: ShieldAlert, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+    { label: 'Invalid', count: batchStats.invalid, icon: AlertCircle, color: 'text-rose-500', bg: 'bg-rose-500/10' },
+    { label: 'Error', count: batchStats.failed, icon: Terminal, color: 'text-slate-400', bg: 'bg-slate-400/10' }
+  ];
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -469,23 +463,9 @@ export default function LeadPulseDashboard() {
           <div className="flex flex-col gap-2">
             <TabsList className="bg-card/60 p-1 rounded-2xl h-14 border border-white/5">
               <TabsTrigger value="tool" className="rounded-xl font-black italic uppercase text-xs h-full px-8">Validator</TabsTrigger>
-              <TabsTrigger 
-                value="history" 
-                onClick={() => {
-                   const userStr = localStorage.getItem('user');
-                   if (userStr) {
-                     const userData = JSON.parse(userStr);
-                     const email = userData.email || userData.data?.email || userData.user?.email;
-                     if (email) fetchHistory(email);
-                   }
-                }}
-                className="rounded-xl font-black italic uppercase text-xs h-full px-8"
-              >
-                History
-              </TabsTrigger>
+              <TabsTrigger value="history" onClick={() => fetchHistory()} className="rounded-xl font-black italic uppercase text-xs h-full px-8">History</TabsTrigger>
             </TabsList>
-            
-            <div className="flex flex-wrap items-center gap-3 px-2 mt-1">
+            <div className="flex items-center gap-3 px-2 mt-1">
                <div className="flex items-center gap-2">
                   <div className={cn("h-2 w-2 rounded-full", activeServer === 2 ? "bg-accent shadow-[0_0_8px_rgba(59,130,246,0.6)]" : "bg-primary animate-pulse shadow-[0_0_8px_rgba(113,85,255,0.6)]")} />
                   <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">
@@ -494,12 +474,12 @@ export default function LeadPulseDashboard() {
                </div>
                <div className="h-4 w-px bg-white/10 mx-1" />
                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch Size:</span>
-                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{displayBatchSize}</Badge>
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Batch:</span>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{batchInfo?.recommendedBatchSize || batchInfo?.batchSize || 25}</Badge>
                </div>
                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Unit Cycle:</span>
-                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{displayConcurrency}</Badge>
+                  <span className="text-[9px] font-black uppercase opacity-60 tracking-widest">Unit:</span>
+                  <Badge variant="outline" className="text-[9px] font-black border-white/10 h-5 px-2 bg-white/5">{batchInfo?.concurrency || 3}</Badge>
                </div>
             </div>
           </div>
@@ -518,57 +498,27 @@ export default function LeadPulseDashboard() {
 
         <TabsContent value="tool" className="space-y-8 outline-none">
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-            <Card className="xl:col-span-1 border-white/10 bg-card shadow-2xl overflow-hidden rounded-[2rem]">
-              <div className={cn("h-1.5 w-full", activeServer === 2 ? "bg-accent shadow-[0_0_10px_rgba(59,130,246,0.5)]" : "bg-primary shadow-[0_0_10px_rgba(113,85,255,0.5)]")} />
-              <CardHeader className="flex flex-row items-center justify-between pt-6">
+            <Card className="xl:col-span-1 border-white/10 bg-card shadow-2xl rounded-[2rem] overflow-hidden">
+              <div className={cn("h-1.5 w-full", activeServer === 2 ? "bg-accent" : "bg-primary")} />
+              <CardHeader className="pt-6">
                 <CardTitle className="text-[10px] font-black uppercase flex items-center gap-2 opacity-70 tracking-[0.2em]">
                   <Terminal className="h-3 w-3" /> Input Console
                 </CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()} className="h-8 text-[9px] font-black uppercase bg-white/5 rounded-lg border border-white/5">Import</Button>
-                <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} />
               </CardHeader>
               <CardContent className="space-y-6 px-6 pb-8">
-                <div className="relative group">
-                  <Textarea 
-                    placeholder="Paste numbers (e.g. +1415...)" 
-                    value={numberInput} 
-                    onChange={e => setNumberInput(e.target.value)} 
-                    className="min-h-[380px] font-code text-xs bg-black/40 border-white/5 rounded-2xl resize-none placeholder:opacity-20 shadow-inner focus:border-primary/50 transition-all" 
-                    disabled={isProcessing} 
-                  />
-                  <div className="absolute bottom-4 right-4 text-[9px] font-black opacity-20 uppercase">
-                    Lines: {numberInput.split('\n').filter(l => l.trim()).length}
-                  </div>
-                </div>
-                
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between px-1">
-                    <label className="text-[9px] font-black uppercase opacity-50 tracking-widest">Routing Region</label>
-                  </div>
-                  <Select value={region} onValueChange={setRegion}>
-                    <SelectTrigger className="bg-black/40 border-white/5 h-12 rounded-xl text-xs font-bold"><SelectValue /></SelectTrigger>
-                    <SelectContent className="rounded-xl bg-card border-white/10">
-                      <SelectItem value="1" className="font-bold text-xs">US & European Nodes</SelectItem>
-                      <SelectItem value="2" className="font-bold text-xs">Global Optimization</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 pt-2">
-                  <Button 
-                    onClick={handleStart} 
-                    disabled={isProcessing || !numberInput.trim()} 
-                    className="h-16 bg-primary text-white font-black italic rounded-2xl text-xl shadow-lg shadow-primary/20 active:translate-y-1 transition-all"
-                  >
-                    {isProcessing ? <Loader2 className="animate-spin" /> : <><Play className="mr-2 h-5 w-5 fill-current" /> START</>}
+                <Textarea 
+                  placeholder="Paste numbers..." 
+                  value={numberInput} 
+                  onChange={e => setNumberInput(e.target.value)} 
+                  className="min-h-[350px] font-code text-xs bg-black/40 border-white/5 rounded-2xl resize-none shadow-inner" 
+                  disabled={isProcessing} 
+                />
+                <div className="grid grid-cols-2 gap-4">
+                  <Button onClick={handleStart} disabled={isProcessing || !numberInput.trim()} className="h-16 bg-primary text-white font-black italic rounded-2xl text-xl">
+                    {isProcessing ? <Loader2 className="animate-spin" /> : "START"}
                   </Button>
-                  <Button 
-                    onClick={handleStop} 
-                    disabled={!isProcessing} 
-                    variant="destructive" 
-                    className="h-16 font-black italic rounded-2xl text-xl shadow-lg shadow-destructive/10 active:translate-y-1 transition-all"
-                  >
-                    <Square className="mr-2 h-5 w-5 fill-current" /> STOP
+                  <Button onClick={handleStop} disabled={!isProcessing} variant="destructive" className="h-16 font-black italic rounded-2xl text-xl">
+                    STOP
                   </Button>
                 </div>
               </CardContent>
@@ -576,206 +526,120 @@ export default function LeadPulseDashboard() {
 
             <div className="xl:col-span-3 space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-4">
-                {statsConfig.map(item => (
-                  <Card 
-                    key={item.id} 
-                    className={cn(
-                      "p-5 rounded-[2rem] border-2 transition-all group shadow-2xl bg-card/40 backdrop-blur-md overflow-hidden relative",
-                      item.borderColor,
-                      "bg-gradient-to-br",
-                      item.bgGradient
-                    )}
-                  >
-                    <div className={cn("absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity", item.iconColor)}>
-                      <item.icon className="h-16 w-16" />
-                    </div>
-                    <div className="flex flex-col gap-1 relative z-10">
-                      <p className="text-[9px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1.5">
-                        <item.icon className={cn("h-3 w-3", item.iconColor)} />
-                        {item.label}
-                      </p>
-                      <h3 className={cn("text-4xl font-black italic tracking-tighter tabular-nums text-3d", item.textColor)}>
-                        {item.count}
-                      </h3>
-                    </div>
+                {dashboardStats.map(item => (
+                  <Card key={item.id} className={cn("p-5 rounded-[2rem] border-2 group shadow-2xl relative overflow-hidden bg-gradient-to-br", item.bgGradient, item.borderColor)}>
+                    <div className={cn("absolute -right-4 -top-4 opacity-10", item.iconColor)}><item.icon className="h-16 w-16" /></div>
+                    <p className="text-[9px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1.5"><item.icon className="h-3 w-3" /> {item.label}</p>
+                    <h3 className={cn("text-4xl font-black italic tracking-tighter text-3d", item.textColor)}>{item.count}</h3>
                   </Card>
                 ))}
               </div>
 
-              <Card className="bg-card/40 p-6 rounded-[2rem] border-white/5 backdrop-blur-md shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-primary/5 pointer-events-none" />
-                <div className="flex justify-between items-end mb-4 relative">
-                   <div className="flex items-center gap-3">
-                     <div className="p-2 bg-primary/10 rounded-lg">
-                       <Activity className={cn("h-4 w-4 text-primary", isProcessing && "animate-pulse")} />
-                     </div>
-                     <div>
-                       <span className="text-[10px] font-black uppercase opacity-60 tracking-[0.3em]">Processing Pipeline</span>
-                     </div>
-                   </div>
-                   <div className="flex items-baseline gap-2">
-                     <span className="text-4xl font-black italic text-primary tabular-nums">{progress}%</span>
-                     <span className="text-[10px] font-black uppercase opacity-30">Complete</span>
-                   </div>
+              <Card className="bg-card/40 p-6 rounded-[2rem] border-white/5 backdrop-blur-md shadow-2xl">
+                <div className="flex justify-between items-end mb-4">
+                  <span className="text-[10px] font-black uppercase opacity-60 tracking-[0.3em]">Pipeline Progress</span>
+                  <span className="text-4xl font-black italic text-primary">{progress}%</span>
                 </div>
                 <Progress value={progress} className="h-4 bg-black/40 rounded-full" />
               </Card>
 
-              <Card className="bg-card/60 rounded-[2.5rem] overflow-hidden border-white/5 shadow-3xl backdrop-blur-2xl">
-                <div className="p-6 border-b border-white/5 bg-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className={cn("h-3 w-3 rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]", isProcessing ? "bg-green-500 animate-pulse" : "bg-muted")} />
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Intelligence Feed</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="overflow-x-auto max-h-[550px] custom-scrollbar">
+              <Card className="bg-card/60 rounded-[2.5rem] overflow-hidden border-white/5 shadow-3xl">
+                <ScrollArea className="h-[500px]">
                   <Table>
                     <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-xl">
                       <TableRow className="border-white/5 h-16">
-                        <TableHead className="px-10 text-[10px] font-black uppercase tracking-widest">Number Identity</TableHead>
+                        <TableHead className="px-10 text-[10px] font-black uppercase tracking-widest">Number</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Status</TableHead>
-                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Geo/Location</TableHead>
+                        <TableHead className="text-[10px] font-black uppercase tracking-widest">Location</TableHead>
                         <TableHead className="text-[10px] font-black uppercase tracking-widest">Carrier</TableHead>
-                        <TableHead className="text-right px-10 text-[10px] font-black uppercase tracking-widest">Engine</TableHead>
+                        <TableHead className="text-right px-10 text-[10px] font-black uppercase tracking-widest">Core</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {results.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={5} className="h-96 text-center">
-                            <div className="flex flex-col items-center gap-6 opacity-10 grayscale">
-                              <Zap className="h-24 w-24" />
-                              <p className="font-black italic uppercase text-2xl tracking-tighter">System Ready for Injection</p>
-                            </div>
+                      {results.map(res => (
+                        <TableRow key={res.id} className="h-20 border-white/5 hover:bg-white/5 transition-all">
+                          <TableCell className="px-10 font-code font-black text-primary text-sm">{res.number}</TableCell>
+                          <TableCell>
+                            <Badge className={cn(
+                              res.status === 'success' ? 'bg-green-500/10 text-green-500' : 
+                              res.status === 'fake' ? 'bg-amber-500/10 text-amber-500' : 
+                              res.status === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-red-500/10 text-red-500',
+                              "border-none text-[8px] font-black px-4 py-1 uppercase rounded-lg"
+                            )}>
+                              {res.type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-[11px] font-black italic opacity-80">{res.location}</TableCell>
+                          <TableCell className="text-[11px] font-bold italic opacity-40">{res.carrier}</TableCell>
+                          <TableCell className="text-right px-10">
+                             <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary px-3 uppercase">{res.provider === 'phonevalidator' ? 'CORE 2' : 'CORE 1'}</Badge>
                           </TableCell>
                         </TableRow>
-                      ) : (
-                        results.map(res => (
-                          <TableRow key={res.id} className="h-20 border-white/5 hover:bg-white/5 transition-all group relative">
-                            <TableCell className="px-10">
-                              <span className="font-code font-black text-primary text-sm tracking-tight group-hover:scale-105 transition-transform origin-left">{res.number}</span>
-                            </TableCell>
-                            <TableCell>
-                              <Badge className={cn(
-                                res.status === 'success' ? 'bg-green-500/10 text-green-500' : 
-                                res.status === 'fake' ? 'bg-amber-500/10 text-amber-500' : 
-                                res.status === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-red-500/10 text-red-500',
-                                "border-none text-[8px] font-black px-4 py-1 uppercase tracking-widest rounded-lg"
-                              )}>
-                                {res.status === 'error' ? 'FAILED' : res.type}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-[11px] font-black italic opacity-80">{res.location}</TableCell>
-                            <TableCell className="text-[11px] font-bold italic opacity-40">{res.carrier}</TableCell>
-                            <TableCell className="text-right px-10">
-                               <Badge variant="outline" className="text-[8px] font-black border-primary/20 text-primary uppercase px-3">{res.provider === 'phonevalidator' ? 'CORE 2' : 'CORE 1'}</Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
+                      ))}
                     </TableBody>
                   </Table>
-                </div>
+                </ScrollArea>
               </Card>
             </div>
           </div>
         </TabsContent>
 
         <TabsContent value="history" className="outline-none">
-          <Card className="border-white/5 bg-card/60 rounded-[3rem] overflow-hidden p-8 shadow-3xl backdrop-blur-2xl">
-             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-               <div className="flex items-center gap-4">
-                 <div className="p-3 bg-primary/10 rounded-2xl"><HistoryIcon className="h-6 w-6 text-primary" /></div>
-                 <div>
-                   <h3 className="text-2xl font-black italic uppercase tracking-tighter">Validation History</h3>
-                   <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1 flex items-center gap-1.5">
-                     <Clock className="h-3 w-3" /> Records are kept for 7 days
-                   </p>
-                 </div>
-               </div>
-               <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => {
-                   const userStr = localStorage.getItem('user');
-                   if (userStr) {
-                     const userData = JSON.parse(userStr);
-                     const email = userData.email || userData.data?.email || userData.user?.email;
-                     if (email) fetchHistory(email);
-                   }
-                }} 
-                disabled={isLoadingHistory}
-                className="h-12 font-black uppercase text-[10px] border-white/10 px-8 rounded-xl hover:bg-primary/10 transition-all"
-               >
-                 {isLoadingHistory ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4 mr-2" />} Sync Logs
-               </Button>
-             </div>
-
-             {history.length === 0 && !isLoadingHistory ? (
-                <div className="h-96 flex flex-col items-center justify-center space-y-6 opacity-20">
-                  <HistoryIcon className="h-20 w-20" />
-                  <p className="font-black italic uppercase text-xl text-center max-w-sm">No history yet. Your validated batches from the last 7 days will appear here.</p>
+          <div className="space-y-6">
+            <div className="p-6 rounded-[2rem] bg-primary/5 border border-primary/10 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary/10 rounded-xl"><HistoryIcon className="h-5 w-5 text-primary" /></div>
+                <div>
+                   <h3 className="text-xl font-black italic uppercase tracking-tighter">Validation Logs</h3>
+                   <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">History is kept for 7 days, then deleted automatically.</p>
                 </div>
-             ) : (
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {history.map((batch) => (
-                   <Card 
-                    key={batch.id} 
-                    className="group bg-black/40 border-white/5 rounded-3xl p-6 hover:border-primary/30 transition-all shadow-xl relative overflow-hidden flex flex-col"
-                   >
-                     <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-20 transition-opacity">
-                        {batch.source === 'api' ? <Globe2 className="h-12 w-12" /> : <Smartphone className="h-12 w-12" />}
-                     </div>
-                     
-                     <div className="flex justify-between items-start mb-6">
-                        <div className="space-y-1">
-                          <p className="text-[9px] font-black uppercase text-primary tracking-widest">
-                            {batch.source === 'api' ? 'API Request' : `Batch #${batch.batchNo || 'N/A'}`}
-                          </p>
-                          <h4 className="text-lg font-black italic">{new Date(batch.sentAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</h4>
-                        </div>
-                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[8px] font-black uppercase px-2">
-                          {batch.total} Numbers
-                        </Badge>
-                     </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => fetchHistory()} disabled={isLoadingHistory} className="rounded-xl font-black italic uppercase text-[10px] h-10 px-6">
+                {isLoadingHistory ? <Loader2 className="animate-spin" /> : "Refresh Records"}
+              </Button>
+            </div>
 
-                     <div className="grid grid-cols-3 gap-2 mb-8">
-                        <div className="bg-green-500/5 p-3 rounded-2xl border border-green-500/10 text-center">
-                           <p className="text-[7px] font-black uppercase text-green-500 opacity-60 mb-1">Valid</p>
-                           <p className="text-lg font-black italic text-green-500">{batch.valid}</p>
-                        </div>
-                        <div className="bg-white/5 p-3 rounded-2xl border border-white/10 text-center">
-                           <p className="text-[7px] font-black uppercase opacity-60 mb-1">Invalid</p>
-                           <p className="text-lg font-black italic">{batch.invalid}</p>
-                        </div>
-                        {batch.failed > 0 && (
-                          <div className="bg-amber-500/5 p-3 rounded-2xl border border-amber-500/10 text-center">
-                            <p className="text-[7px] font-black uppercase text-amber-500 opacity-60 mb-1">Failed</p>
-                            <p className="text-lg font-black italic text-amber-500">{batch.failed}</p>
-                          </div>
-                        )}
-                     </div>
+            {history.length === 0 && !isLoadingHistory ? (
+               <div className="h-96 flex flex-col items-center justify-center opacity-20"><HistoryIcon className="h-20 w-20 mb-4" /><p className="text-xl font-black italic uppercase">No records found</p></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {history.map((session) => (
+                  <Card key={session.id} className="group bg-card border-white/5 rounded-3xl p-6 hover:border-primary/30 transition-all shadow-xl flex flex-col relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                      {session.source === 'api' ? <Globe2 className="h-16 w-16" /> : <Smartphone className="h-16 w-16" />}
+                    </div>
+                    
+                    <div className="flex justify-between items-start mb-6">
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-black uppercase text-primary tracking-widest">{session.source === 'api' ? 'API INTEGRATION' : 'DASHBOARD SESSION'}</p>
+                        <h4 className="text-lg font-black italic">{new Date(session.sentAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</h4>
+                      </div>
+                      <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] font-black uppercase">{session.total} items</Badge>
+                    </div>
 
-                     <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
-                        <span className="text-[9px] font-black uppercase text-muted-foreground opacity-50 flex items-center gap-1.5">
-                           <Clock className="h-3 w-3" /> {formatExpiresAt(batch.expiresAt)}
-                        </span>
-                        <div className="flex gap-2">
-                          <Button size="icon" variant="ghost" onClick={() => handleDownloadHistory(batch.id, 'csv')} className="h-8 w-8 rounded-lg text-primary hover:bg-primary/10">
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button size="icon" variant="ghost" onClick={() => openBatchDetails(batch)} className="h-8 w-8 rounded-lg text-white hover:bg-white/10">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
-                     </div>
-                   </Card>
-                 ))}
-               </div>
-             )}
-          </Card>
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                      <div className="bg-green-500/5 p-4 rounded-2xl border border-green-500/10 text-center">
+                        <p className="text-[8px] font-black uppercase text-green-500 opacity-60 mb-1">Success</p>
+                        <p className="text-2xl font-black italic text-green-500">{session.valid}</p>
+                      </div>
+                      <div className="bg-rose-500/5 p-4 rounded-2xl border border-rose-500/10 text-center">
+                        <p className="text-[8px] font-black uppercase text-rose-500 opacity-60 mb-1">Invalid</p>
+                        <p className="text-2xl font-black italic text-rose-500">{session.invalid + session.failed}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-auto pt-4 border-t border-white/5 flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-muted-foreground opacity-50 flex items-center gap-2"><Clock className="h-3.5 w-3.5" /> {formatExpiresAt(session.expiresAt)}</span>
+                      <div className="flex gap-2">
+                         <Button size="icon" variant="ghost" onClick={() => handleDownloadHistory(session.id, 'csv')} className="h-9 w-9 rounded-xl text-primary hover:bg-primary/10"><Download className="h-4 w-4" /></Button>
+                         <Button size="icon" variant="ghost" onClick={() => openBatchDetails(session)} className="h-9 w-9 rounded-xl text-white hover:bg-white/10"><Eye className="h-4 w-4" /></Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -784,134 +648,90 @@ export default function LeadPulseDashboard() {
            <DialogHeader className="p-8 border-b border-white/5 bg-white/5">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
                 <div>
-                   <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">
-                     {selectedBatch?.source === 'api' ? 'API Engine Log' : `Batch #${selectedBatch?.batchNo} Analysis`}
-                   </DialogTitle>
-                   <DialogDescription className="text-[9px] font-bold uppercase tracking-widest mt-1 opacity-60">
-                     Execution ID: {selectedBatch?.runId}
-                   </DialogDescription>
+                   <DialogTitle className="text-2xl font-black italic uppercase tracking-tighter">Session Analysis</DialogTitle>
+                   <DialogDescription className="text-[9px] font-bold uppercase tracking-widest mt-1">Ref ID: {selectedBatch?.runId}</DialogDescription>
                 </div>
-                <div className="flex items-center gap-3">
-                   <div className="flex flex-col items-end">
-                      <span className="text-[8px] font-black uppercase text-primary opacity-60">Success Rate</span>
-                      <span className="text-xl font-black italic text-green-500">
-                        {selectedBatch ? Math.round((selectedBatch.valid / selectedBatch.total) * 100) : 0}%
-                      </span>
-                   </div>
-                   <div className="h-8 w-px bg-white/10 mx-2" />
-                   <div className="flex flex-col items-end">
-                      <span className="text-[8px] font-black uppercase opacity-60">Process Time</span>
-                      <span className="text-xl font-black italic">{new Date(selectedBatch?.sentAt || '').toLocaleTimeString([], { timeStyle: 'short' })}</span>
-                   </div>
+                <div className="flex items-center gap-4">
+                   <Button variant="outline" onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'csv', batchFilter)} className="h-12 rounded-xl border-white/10 text-[10px] font-black px-6"><Download className="h-4 w-4 mr-2" /> Export CSV</Button>
+                   <Button onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'txt', batchFilter)} className="h-12 rounded-xl bg-primary text-white text-[10px] font-black px-6">Numbers (TXT)</Button>
                 </div>
               </div>
            </DialogHeader>
 
-           <div className="p-8 space-y-6">
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                 <Tabs value={batchFilter} onValueChange={(val) => { setBatchFilter(val); if(selectedBatch) fetchBatchDetails(selectedBatch.id, val); }} className="w-full sm:w-auto">
-                    <TabsList className="bg-black/40 border border-white/5 h-12 rounded-xl p-1">
-                       <TabsTrigger value="all" className="rounded-lg text-[9px] font-black uppercase px-6">All</TabsTrigger>
-                       <TabsTrigger value="valid" className="rounded-lg text-[9px] font-black uppercase px-6 data-[state=active]:bg-green-500/20 data-[state=active]:text-green-500">Valid</TabsTrigger>
-                       <TabsTrigger value="invalid" className="rounded-lg text-[9px] font-black uppercase px-6 data-[state=active]:bg-white/10">Invalid</TabsTrigger>
-                       <TabsTrigger value="failed" className="rounded-lg text-[9px] font-black uppercase px-6 data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-500">Failed</TabsTrigger>
-                    </TabsList>
-                 </Tabs>
-                 <div className="flex gap-2 w-full sm:w-auto">
-                    <Button 
-                      variant="outline" 
-                      onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'txt', batchFilter)} 
-                      disabled={!!isDownloading}
-                      className="flex-1 sm:flex-none h-12 rounded-xl border-white/10 text-[9px] font-black uppercase px-6"
-                    >
-                       TXT
-                    </Button>
-                    <Button 
-                      onClick={() => selectedBatch && handleDownloadHistory(selectedBatch.id, 'csv', batchFilter)} 
-                      disabled={!!isDownloading}
-                      className="flex-1 sm:flex-none h-12 rounded-xl bg-primary text-white text-[9px] font-black uppercase px-6 shadow-lg shadow-primary/20"
-                    >
-                       {isDownloading === (selectedBatch?.id + 'csv') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3 mr-2" />} Download CSV
-                    </Button>
-                 </div>
+           <div className="p-8 space-y-8">
+              {/* Colorful Session Stats Breakdown */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+                {detailStats.map((stat, i) => (
+                  <div key={i} className={cn("p-4 rounded-2xl border border-white/5 flex flex-col items-center text-center", stat.bg)}>
+                    <stat.icon className={cn("h-4 w-4 mb-2", stat.color)} />
+                    <span className="text-[8px] font-black uppercase opacity-60 mb-1">{stat.label}</span>
+                    <span className={cn("text-xl font-black italic", stat.color)}>{stat.count}</span>
+                  </div>
+                ))}
               </div>
 
-              <ScrollArea className="h-[450px] rounded-3xl border border-white/5 bg-black/40">
+              <div className="flex items-center justify-between gap-4">
+                 <Tabs value={batchFilter} onValueChange={(val) => { setBatchFilter(val); if(selectedBatch) fetchBatchDetails(selectedBatch.id, val); }} className="w-full sm:w-auto">
+                    <TabsList className="bg-black/40 border border-white/5 h-12 rounded-xl p-1">
+                       <TabsTrigger value="all" className="rounded-lg text-[10px] font-black px-6">All</TabsTrigger>
+                       <TabsTrigger value="valid" className="rounded-lg text-[10px] font-black px-6 data-[state=active]:bg-green-500/20 data-[state=active]:text-green-500">Valid</TabsTrigger>
+                       <TabsTrigger value="invalid" className="rounded-lg text-[10px] font-black px-6 data-[state=active]:bg-rose-500/20 data-[state=active]:text-rose-500">Invalid</TabsTrigger>
+                       <TabsTrigger value="failed" className="rounded-lg text-[10px] font-black px-6 data-[state=active]:bg-slate-500/20">Failed</TabsTrigger>
+                    </TabsList>
+                 </Tabs>
+              </div>
+
+              <ScrollArea className="h-[400px] rounded-3xl border border-white/5 bg-black/40">
                  {isLoadingBatchDetails ? (
-                    <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-50">
-                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                       <p className="text-[10px] font-black uppercase tracking-widest">Streaming results...</p>
-                    </div>
+                    <div className="h-full flex flex-col items-center justify-center space-y-4 opacity-50"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="text-[10px] font-black uppercase">Loading data...</p></div>
                  ) : (
                     <Table>
                       <TableHeader className="bg-muted/10 sticky top-0 z-10 backdrop-blur-md">
                         <TableRow className="border-white/5 h-14">
-                          <TableHead className="px-8 text-[9px] font-black uppercase tracking-widest">Identity</TableHead>
+                          <TableHead className="px-8 text-[9px] font-black uppercase tracking-widest">Number</TableHead>
                           <TableHead className="text-[9px] font-black uppercase tracking-widest">Status</TableHead>
                           <TableHead className="text-[9px] font-black uppercase tracking-widest">Type</TableHead>
-                          <TableHead className="text-[9px] font-black uppercase tracking-widest">Carrier / Provider</TableHead>
-                          <TableHead className="text-right px-8 text-[9px] font-black uppercase tracking-widest">Geo</TableHead>
+                          <TableHead className="text-[9px] font-black uppercase tracking-widest">Carrier</TableHead>
+                          <TableHead className="text-right px-8 text-[9px] font-black uppercase tracking-widest">Location</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {batchDetails.length === 0 ? (
-                           <TableRow><TableCell colSpan={5} className="h-64 text-center opacity-20 font-black italic uppercase">No data found</TableCell></TableRow>
-                        ) : (
-                          batchDetails.map((item, idx) => (
-                            <TableRow key={idx} className="border-white/5 h-16 hover:bg-white/5">
-                              <TableCell className="px-8 font-code text-[11px] font-black text-primary">{item.number}</TableCell>
-                              <TableCell>
-                                <Badge className={cn(
-                                  item.error ? 'bg-amber-500/10 text-amber-500' : (item.valid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'),
-                                  "border-none text-[8px] font-black uppercase px-3 py-1 rounded-md"
-                                )}>
-                                  {item.error ? 'FAILED' : (item.valid ? 'VALID' : 'INVALID')}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-[10px] font-bold uppercase opacity-60">{item.line_type || '-'}</TableCell>
-                              <TableCell className="text-[10px] font-medium italic opacity-40">{item.carrier || '-'}</TableCell>
-                              <TableCell className="text-right px-8 text-[10px] font-black italic opacity-60">{item.country_name || item.location || '-'}</TableCell>
-                            </TableRow>
-                          ))
-                        )}
+                        {batchDetails.map((item, idx) => (
+                          <TableRow key={idx} className="border-white/5 h-16 hover:bg-white/5">
+                            <TableCell className="px-8 font-code text-[11px] font-black text-primary">{item.number}</TableCell>
+                            <TableCell>
+                              <Badge className={cn(
+                                item.error ? 'bg-amber-500/10 text-amber-500' : (item.valid ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'),
+                                "border-none text-[8px] font-black uppercase px-3 py-1 rounded-md"
+                              )}>
+                                {item.error ? 'FAILED' : (item.valid ? 'VALID' : 'INVALID')}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-[10px] font-bold uppercase opacity-60">{item.line_type || '-'}</TableCell>
+                            <TableCell className="text-[10px] font-medium italic opacity-40">{item.carrier || '-'}</TableCell>
+                            <TableCell className="text-right px-8 text-[10px] font-black italic opacity-60">{item.country_name || item.location || '-'}</TableCell>
+                          </TableRow>
+                        ))}
                       </TableBody>
                     </Table>
                  )}
               </ScrollArea>
            </div>
            
-           <DialogFooter className="p-8 border-t border-white/5 bg-white/5 flex justify-center items-center">
-              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em] opacity-40 italic">
-                 Security Layer: numcheckr distributed validation protocol v4.0
-              </p>
+           <DialogFooter className="p-6 border-t border-white/5 bg-white/5 flex justify-center items-center">
+              <p className="text-[9px] font-bold text-muted-foreground uppercase italic opacity-40">Security Layer: numcheckr distributed validation protocol v4.0</p>
            </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={showCreditModal.open} onOpenChange={(o) => setShowCreditModal(s => ({...s, open: o}))}>
-        <DialogContent className="border-primary/20 bg-card rounded-[2.5rem] max-w-sm text-center shadow-3xl p-10">
-          <div className="mx-auto w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mb-8 border-2 border-destructive/20 shadow-lg shadow-destructive/10">
-            <ShieldAlert className="h-12 w-12 text-destructive" />
-          </div>
-          <DialogTitle className="text-3xl font-black italic uppercase tracking-tighter mb-3 leading-none">Security Halt</DialogTitle>
-          <p className="font-bold uppercase text-[10px] tracking-widest opacity-60 mb-8 px-4 leading-relaxed">
-            {showCreditModal.msg}
-          </p>
-          <div className="space-y-4">
-            <Button onClick={() => window.location.href = '/credits'} className="w-full h-20 bg-primary text-white font-black italic rounded-2xl text-xl shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
-              <Zap className="mr-3 h-6 w-6 fill-current" /> RECHARGE WALLET
-            </Button>
-            <Button variant="ghost" onClick={() => setShowCreditModal({open: false, msg: ''})} className="w-full h-12 font-black uppercase text-[10px] opacity-50 tracking-widest">Close Alert</Button>
-          </div>
+        <DialogContent className="border-primary/20 bg-card rounded-[2.5rem] max-w-sm text-center p-10">
+          <div className="mx-auto w-24 h-24 bg-destructive/10 rounded-[2rem] flex items-center justify-center mb-8 border-2 border-destructive/20"><ShieldAlert className="h-12 w-12 text-destructive" /></div>
+          <DialogTitle className="text-3xl font-black italic uppercase mb-3">Security Halt</DialogTitle>
+          <p className="font-bold uppercase text-[10px] tracking-widest opacity-60 mb-8">{showCreditModal.msg}</p>
+          <Button onClick={() => window.location.href = '/credits'} className="w-full h-20 bg-primary text-white font-black italic rounded-2xl text-xl">RECHARGE WALLET</Button>
         </DialogContent>
       </Dialog>
-
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(113,85,255,0.2); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(113,85,255,0.4); }
-      `}</style>
     </div>
   );
 }
