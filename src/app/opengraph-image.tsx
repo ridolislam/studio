@@ -1,6 +1,4 @@
-// This file was previously used for dynamic OG image generation.
-// It has been replaced by the static og-image.png in the public folder.
-export const runtime = 'edge';
-export default function Image() {
+// Exporting nothing to ensure Next.js uses the static image from public folder or metadata object
+export default function OGImage() {
   return null;
 }

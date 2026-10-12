@@ -1,6 +1,4 @@
-// This file was previously used for dynamic icon generation.
-// It has been replaced by the static favicon.ico in the public folder.
-export const runtime = 'edge';
+// Exporting nothing to use the static favicon in public folder
 export default function Icon() {
   return null;
 }

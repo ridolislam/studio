@@ -1,6 +1,4 @@
-// This file was previously used for dynamic apple-icon generation.
-// It has been replaced by the static apple-icon.png in the public folder.
-export const runtime = 'edge';
-export default function Icon() {
+// Exporting nothing to use the static file in public folder
+export default function AppleIcon() {
   return null;
 }

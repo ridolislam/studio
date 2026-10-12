@@ -5,7 +5,8 @@ import { FirebaseClientProvider } from '@/firebase';
 import FloatingWhatsApp from '@/components/FloatingWhatsApp';
 import Script from 'next/script';
 
-const APP_URL = 'https://numcheckr.netlify.app';
+// This URL should match your production domain. If testing, it might be different.
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://numcheckr.netlify.app';
 
 export const viewport: Viewport = {
   themeColor: '#7155FF',
@@ -37,7 +38,7 @@ export const metadata: Metadata = {
     siteName: 'numcheckr',
     images: [
       {
-        url: '/og-image.png',
+        url: '/og-image.png', // Pointing to public/og-image.png
         width: 1200,
         height: 630,
         alt: 'numcheckr - AI Phone Verification',
