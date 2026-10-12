@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     siteName: 'numcheckr',
     images: [
       {
-        url: '/opengraph-image',
+        url: '/og-image.png',
         width: 1200,
         height: 630,
         alt: 'numcheckr - AI Phone Verification',
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'numcheckr - AI-Powered Lead Verification',
     description: 'Verify and clean your leads with 99.9% accuracy.',
-    images: ['/opengraph-image'],
+    images: ['/og-image.png'],
   },
   robots: {
     index: true,
